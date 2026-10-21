@@ -2835,17 +2835,45 @@ function renderLeadTrend(channel){
   const isRec = channel==='received';
   const headerCols = isRec
     ? `<th>عدد ${unitPlural}</th><th>نسبة التحويل</th><th>عدد العملاء اللي حجزوا</th><th>الإيراد اليومي</th>`
-    : `<th>إجمالي ${unitPlural}</th><th>مكالمات اتعملت</th><th>Answer</th><th>No Answer</th><th>مكالمات الموظفين فعلياً (بتاريخ المكالمة)</th><th>ليدز اتكلم معاهم مرة واحدة</th><th>ليدز اتكلم معاهم أكتر من مرة</th><th>نسبة الرد</th><th>نسبة التحويل</th><th>عدد العملاء اللي حجزوا</th><th>الإيراد اليومي</th>`;
+    : `<th>إجمالي ${unitPlural}</th><th>مكالمات اتعملت</th><th>Answer</th><th>No Answer</th><th>% Answer (من المكالمات اللي اتعملت)</th><th>% No Answer (من المكالمات اللي اتعملت)</th><th>مكالمات الموظفين فعلياً (بتاريخ المكالمة)</th><th>ليدز اتكلم معاهم مرة واحدة</th><th>ليدز اتكلم معاهم أكتر من مرة</th><th>نسبة الرد</th><th>نسبة التحويل</th><th>عدد العملاء اللي حجزوا</th><th>الإيراد اليومي</th>`;
   const isLowVolume = n => isRec ? n<=15 : n<150; // Received: 15 وأقل — Leads: أقل من 150
   const countCell = i=>`<td style="${isLowVolume(countSeries[i]) ? 'color:var(--red); font-weight:700;' : ''}">${fmtNum(countSeries[i])}</td>`;
-  const realCallCells = k=>{ if(!hasFollowups) return '<td>—</td><td>—</td><td>—</td>'; const f=fuByDay.get(k); let once=0, multi=0; if(f) f.custs.forEach(n=>{ if(n>1) multi++; else once++; }); return `<td>${fmtNum(f?f.calls:0)}</td><td>${fmtNum(once)}</td><td>${fmtNum(multi)}</td>`; };
+  const dayReal = k=>{
+    const f = fuByDay.get(k); let once=0, multi=0;
+    if(f) f.custs.forEach(n=>{ if(n>1) multi++; else once++; });
+    return { calls: f?f.calls:0, once, multi };
+  };
+  const realCallCells = k=>{ if(!hasFollowups) return '<td>—</td><td>—</td><td>—</td>'; const r=dayReal(k); return `<td>${fmtNum(r.calls)}</td><td>${fmtNum(r.once)}</td><td>${fmtNum(r.multi)}</td>`; };
   const tailCells = i=>`<td>${fmtNum(paidSeries[i])}</td><td><b>${fmtMoney(revenueSeries[i])}</b></td>`;
+  const pctOf = (n,d)=> d ? fmtPct(n/d*100) : '—';
   const rowCols = isRec
     ? (i)=>`${countCell(i)}<td>${fmtPct(convSeries[i])}</td>${tailCells(i)}`
-    : (i)=>`${countCell(i)}<td>${fmtNum(answeredSeries[i]+noAnswerSeries[i])}</td><td>${fmtNum(answeredSeries[i])}</td><td>${fmtNum(noAnswerSeries[i])}</td>${realCallCells(keys[i])}<td>${fmtPct(answerSeries[i])}</td><td>${fmtPct(convSeries[i])}</td>${tailCells(i)}`;
+    : (i)=>{ const made = answeredSeries[i]+noAnswerSeries[i];
+        return `${countCell(i)}<td>${fmtNum(made)}</td><td>${fmtNum(answeredSeries[i])}</td><td>${fmtNum(noAnswerSeries[i])}</td><td>${pctOf(answeredSeries[i],made)}</td><td>${pctOf(noAnswerSeries[i],made)}</td>${realCallCells(keys[i])}<td>${fmtPct(answerSeries[i])}</td><td>${fmtPct(convSeries[i])}</td>${tailCells(i)}`; };
+
+  // ---- Totals row (bottom): counts/money are summed, percentages recomputed from the sums ----
+  const sum = arr => arr.reduce((x,y)=>x+y,0);
+  let totalRow = '';
+  if(keys.length){
+    const tTotal = sum(countSeries), tPaid = sum(paidSeries), tRev = sum(revenueSeries);
+    const tAns = sum(answeredSeries), tNoAns = sum(noAnswerSeries), tMade = tAns + tNoAns;
+    const tdT = v=>`<td><b>${v}</b></td>`;
+    let cells;
+    if(isRec){
+      cells = tdT(fmtNum(tTotal)) + tdT(pctOf(tPaid,tTotal)) + tdT(fmtNum(tPaid)) + tdT(fmtMoney(tRev));
+    }else{
+      let tCalls=0, tOnce=0, tMulti=0;
+      keys.forEach(k=>{ const r=dayReal(k); tCalls+=r.calls; tOnce+=r.once; tMulti+=r.multi; });
+      const real = hasFollowups ? tdT(fmtNum(tCalls))+tdT(fmtNum(tOnce))+tdT(fmtNum(tMulti)) : '<td>—</td><td>—</td><td>—</td>';
+      cells = tdT(fmtNum(tTotal)) + tdT(fmtNum(tMade)) + tdT(fmtNum(tAns)) + tdT(fmtNum(tNoAns))
+            + tdT(pctOf(tAns,tMade)) + tdT(pctOf(tNoAns,tMade)) + real
+            + tdT(pctOf(tAns,tTotal)) + tdT(pctOf(tPaid,tTotal)) + tdT(fmtNum(tPaid)) + tdT(fmtMoney(tRev));
+    }
+    totalRow = `<tr style="border-top:2px solid var(--border); background:var(--bg-soft, transparent);"><td><b>الإجمالي</b></td>${cells}<td>${confidenceBadge(tTotal)}</td></tr>`;
+  }
   document.getElementById(tableId).innerHTML = `
     <thead><tr><th>اليوم</th>${headerCols}<th>ثقة العينة</th></tr></thead>
-    <tbody>${keys.map((k,i)=>`<tr><td>${labels[i]}</td>${rowCols(i)}<td>${confidenceBadge(countSeries[i])}</td></tr>`).join('') || emptyRow(isRec?6:13,'لا توجد بيانات')}</tbody>`;
+    <tbody>${keys.map((k,i)=>`<tr><td>${labels[i]}</td>${rowCols(i)}<td>${confidenceBadge(countSeries[i])}</td></tr>`).join('') || emptyRow(isRec?6:16,'لا توجد بيانات')}${totalRow}</tbody>`;
 }
 
 /* =========================================================
