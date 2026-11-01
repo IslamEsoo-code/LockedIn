@@ -2161,6 +2161,27 @@ function callsTemplate(){
     </div>
 
     <div class="panel">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📞 محاولات التواصل لكل رقم (Leads)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-attempts-summary','leads_attempts_summary')">⬇️ Excel (الملخص)</button></div>
+      <div class="badge-note">كل رقم (عميل واحد من غير تكرار) اتعمل له كام محاولة اتصال — من عمود History في شيت الليدز. "ولا مرة" = ليد محدش كلمه خالص. النتيجة (Answer / No Answer) هي نتيجة آخر مكالمة. دوس على أي صف تشوف الأرقام نفسها تحت</div>
+      <div style="overflow:auto;"><table id="leads-attempts-summary"></table></div>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:16px 0 8px;">
+        <b style="font-size:13px;">تفاصيل كل رقم:</b>
+        <select id="leads-attempts-filter" onchange="setAttemptsFilter(this.value)" style="padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--panel, transparent); color:var(--text);">
+          <option value="all">كل الأرقام</option>
+          <option value="0">ولا مرة</option>
+          <option value="1">مرة واحدة</option>
+          <option value="2">مرتين</option>
+          <option value="3">3 مرات</option>
+          <option value="4">4 مرات</option>
+          <option value="5+">5 مرات أو أكتر</option>
+          <option value="2+">أكتر من مرة (2+)</option>
+        </select>
+        <button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportAttemptsDetail()">⬇️ Excel (كل الأرقام المعروضة)</button>
+      </div>
+      <div style="overflow:auto;"><table id="leads-attempts-detail"></table></div>
+    </div>
+
+    <div class="panel">
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ⏳ تراكم الليدز اللي من غير أكشن (Backlog Aging)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('noaction-backlog-table','no_action_backlog')">⬇️ Excel</button></div>
       <div class="badge-note">العمر محسوب نسبة لأحدث تاريخ ليد موجود في الداتا — دوس على أي عمود تشوف الليدز نفسها</div>
       <div class="chart-wrap sm"><canvas id="noaction-backlog-chart"></canvas></div>
@@ -2571,6 +2592,7 @@ function renderCalls(){
   renderGeoDistribution();
   renderLeadScaleReadiness('leads');
   renderLeadTrend('leads');
+  try{ renderLeadAttempts(); }catch(err){ console.error('attempts render failed', err); }
   renderNoActionBacklog('leads');
   renderLoadVsQuality('leads');
   renderSourceSegmentMatrix('leads');
@@ -2874,6 +2896,118 @@ function renderLeadTrend(channel){
   document.getElementById(tableId).innerHTML = `
     <thead><tr><th>اليوم</th>${headerCols}<th>ثقة العينة</th></tr></thead>
     <tbody>${keys.map((k,i)=>`<tr><td>${labels[i]}</td>${rowCols(i)}<td>${confidenceBadge(countSeries[i])}</td></tr>`).join('') || emptyRow(isRec?6:16,'لا توجد بيانات')}${totalRow}</tbody>`;
+}
+
+/* =========================================================
+   Attempts per number — how many call attempts each lead got
+   (from the History column), who was never contacted, who once,
+   and the share of each group.
+========================================================= */
+window.__attemptRows = [];
+window.__attemptFilter = 'all';
+const ATTEMPT_BUCKETS = [
+  {k:'0',  label:'ولا مرة (محدش كلمه)'},
+  {k:'1',  label:'مرة واحدة'},
+  {k:'2',  label:'مرتين'},
+  {k:'3',  label:'3 مرات'},
+  {k:'4',  label:'4 مرات'},
+  {k:'5+', label:'5 مرات أو أكتر'},
+];
+function attemptBucketOf(n){ return n>=5 ? '5+' : String(n); }
+function attemptMatches(n, f){
+  if(f==='all') return true;
+  if(f==='2+') return n>=2;
+  return attemptBucketOf(n)===f;
+}
+function renderLeadAttempts(){
+  const sumEl = document.getElementById('leads-attempts-summary');
+  if(!sumEl) return;
+  const F = window.DATA_FULL;
+  const acts = F.leadHistoryActions || [];
+  // index every logged call by all phone aliases of the customer
+  const idx = new Map();
+  acts.forEach(a=>{
+    callPhones(a).forEach(ph=> F.resolveAliases(ph).forEach(al=>{
+      if(!idx.has(al)) idx.set(al, new Set());
+      idx.get(al).add(a);
+    }));
+  });
+  const customers = channelList('leads');
+  const rows = customers.map(c=>{
+    const mine = new Set();
+    callPhones(c).forEach(ph=> F.resolveAliases(ph).forEach(al=>{ const st=idx.get(al); if(st) st.forEach(a=>mine.add(a)); }));
+    const list = Array.from(mine).sort((x,y)=>x.datetime-y.datetime);
+    return {
+      c, n:list.length,
+      first: list.length ? list[0].datetime : null,
+      last: list.length ? list[list.length-1].datetime : null,
+      lastAgent: list.length ? list[list.length-1].agent : '',
+      agents: new Set(list.map(a=>a.agent)).size,
+      paid: customerHasCorePayment(c),
+      result: String(c.callResult||'').trim() || '—',
+    };
+  });
+  window.__attemptRows = rows;
+
+  const total = rows.length;
+  const fmtD = d=> d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}` : '—';
+  window.__fmtAttemptDate = fmtD;
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const isRes = (r,t)=> r.result.toLowerCase()===t.toLowerCase();
+  const body = ATTEMPT_BUCKETS.map(b=>{
+    const g = rows.filter(r=>attemptBucketOf(r.n)===b.k);
+    const paid = g.filter(r=>r.paid).length;
+    const ans = g.filter(r=>isRes(r,'Answer')).length, noAns = g.filter(r=>isRes(r,'No Answer')).length;
+    const red = b.k==='0' ? 'color:var(--red); font-weight:700;' : '';
+    return `<tr class="drill-row" style="cursor:pointer;" onclick="setAttemptsFilter('${b.k}', true)">
+      <td style="${red}">${b.label}</td><td>${fmtNum(g.length)}</td><td>${pct(g.length,total)}</td>
+      <td>${fmtNum(ans)}</td><td>${fmtNum(noAns)}</td><td>${fmtNum(paid)}</td><td>${pct(paid,g.length)}</td></tr>`;
+  }).join('');
+  const tPaid = rows.filter(r=>r.paid).length;
+  const tAns = rows.filter(r=>isRes(r,'Answer')).length, tNoAns = rows.filter(r=>isRes(r,'No Answer')).length;
+  const contacted = rows.filter(r=>r.n>0), multi = rows.filter(r=>r.n>=2);
+  const totalRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(total)}</b></td><td><b>${total?'100.0%':'—'}</b></td><td><b>${fmtNum(tAns)}</b></td><td><b>${fmtNum(tNoAns)}</b></td><td><b>${fmtNum(tPaid)}</b></td><td><b>${pct(tPaid,total)}</b></td></tr>`;
+  const avg = contacted.length ? (contacted.reduce((x,r)=>x+r.n,0)/contacted.length).toFixed(1) : '—';
+  const note = `<tr><td colspan="7" style="font-size:12px; color:var(--text-dim);">اتكلم معاهم: <b>${fmtNum(contacted.length)}</b> (${pct(contacted.length,total)}) &nbsp;•&nbsp; اتكلم معاهم أكتر من مرة: <b>${fmtNum(multi.length)}</b> (${pct(multi.length,total)} من الإجمالي) &nbsp;•&nbsp; متوسط المحاولات للي اتكلم معاهم: <b>${avg}</b></td></tr>`;
+  sumEl.innerHTML = `<thead><tr><th>عدد المحاولات</th><th>عدد الأرقام</th><th>% من الإجمالي</th><th>آخر نتيجة Answer</th><th>آخر نتيجة No Answer</th><th>دفعوا</th><th>نسبة التحويل</th></tr></thead>
+    <tbody>${total ? body+totalRow+note : emptyRow(7,'لا توجد بيانات')}</tbody>`;
+  if(!acts.length){
+    sumEl.innerHTML = `<tbody>${emptyRow(7,'مفيش عمود History في شيت الليدز — ماقدرتش أحسب المحاولات')}</tbody>`;
+  }
+  paintAttemptsDetail();
+}
+function setAttemptsFilter(v, scroll){
+  window.__attemptFilter = v;
+  const sel = document.getElementById('leads-attempts-filter');
+  if(sel) sel.value = v;
+  paintAttemptsDetail();
+  if(scroll && sel) sel.scrollIntoView({behavior:'smooth', block:'center'});
+}
+function attemptsFilteredRows(){
+  return window.__attemptRows.filter(r=>attemptMatches(r.n, window.__attemptFilter))
+    .sort((a,b)=> b.n-a.n || (b.c.datetime||0)-(a.c.datetime||0));
+}
+function paintAttemptsDetail(){
+  const el = document.getElementById('leads-attempts-detail');
+  if(!el) return;
+  const fmtD = window.__fmtAttemptDate || (d=>String(d||''));
+  const head = `<thead><tr><th>الرقم</th><th>الاسم</th><th>المصدر</th><th>تاريخ دخول الليد</th><th>عدد المحاولات</th><th>أول محاولة</th><th>آخر محاولة</th><th>آخر موظف</th><th>آخر نتيجة</th><th>دفع؟</th></tr></thead>`;
+  const rows = attemptsFilteredRows().map(r=>`<tr>
+    <td dir="ltr" style="text-align:right;">${esc(r.c.mobile1||r.c.mobile2||'—')}</td><td>${esc(r.c.name||'—')}</td><td>${esc(r.c.source||'—')}</td>
+    <td>${fmtD(r.c.datetime)}</td><td style="${r.n===0?'color:var(--red); font-weight:700;':''}">${fmtNum(r.n)}</td>
+    <td>${fmtD(r.first)}</td><td>${fmtD(r.last)}</td><td>${esc(r.lastAgent||'—')}</td><td>${esc(r.result)}</td><td>${r.paid?'✓':'—'}</td></tr>`);
+  renderPagedTable('leads-attempts-detail', head, rows, 25);
+}
+function exportAttemptsDetail(){
+  const rows = attemptsFilteredRows();
+  if(!rows.length){ alert('لا توجد بيانات لتصديرها دلوقتي'); return; }
+  const iso = d=> d ? d.toISOString().slice(0,10) : '';
+  const header = ['الرقم','الاسم','المصدر','تاريخ دخول الليد','عدد المحاولات','أول محاولة','آخر محاولة','آخر موظف','آخر نتيجة','دفع؟'];
+  const data = rows.map(r=>[r.c.mobile1||r.c.mobile2||'', r.c.name||'', r.c.source||'', iso(r.c.datetime), r.n, iso(r.first), iso(r.last), r.lastAgent||'', r.result, r.paid?'نعم':'لا']);
+  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Attempts');
+  XLSX.writeFile(wb, `leads_attempts_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 /* =========================================================
@@ -4168,8 +4302,9 @@ function moneyTemplate(){
         <div class="chart-wrap"><canvas id="money-trend-stacked"></canvas></div>
       </div>
       <div class="panel">
-        <div class="panel-title"><span class="bar"></span> الإيرادات حسب طريقة الدفع</div>
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> الإيرادات حسب طريقة الدفع</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('money-by-method-table','revenue_by_payment_method')">⬇️ Excel</button></div>
         <div class="chart-wrap"><canvas id="money-by-method"></canvas></div>
+        <div style="overflow:auto; margin-top:14px;"><table id="money-by-method-table"></table></div>
       </div>
     </div>
 
@@ -4285,6 +4420,24 @@ function renderMoney(){
     data:{ labels: methodEntries.map(e=>e[0]), datasets:[{ data: methodEntries.map(e=>e[1]), backgroundColor:PALETTE.concat(['#64748b','#f43f5e','#22d3ee']), borderWidth:0 }]},
     options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:9, font:{size:9}}}} }
   });
+
+  // Same data as the doughnut, as an actual table: every method (not just top 8) with amounts
+  (function(){
+    const groups = new Map();
+    payments.forEach(p=>{
+      const k = (p.method && String(p.method).trim()) || 'غير محدد';
+      if(!groups.has(k)) groups.set(k, {amount:0, count:0});
+      const g = groups.get(k); g.amount += p.amount; g.count++;
+    });
+    const list = Array.from(groups.entries()).sort((a,b)=>b[1].amount-a[1].amount);
+    const tAmt = list.reduce((x,e)=>x+e[1].amount,0), tCnt = list.reduce((x,e)=>x+e[1].count,0);
+    const pc = n=> tAmt ? fmtPct(n/tAmt*100) : '—';
+    const rows = list.map(([k,g])=>`<tr><td>${esc(k)}</td><td><b>${fmtMoney(g.amount)}</b></td><td>${pc(g.amount)}</td><td>${fmtNum(g.count)}</td><td>${fmtMoney(g.count ? g.amount/g.count : 0)}</td></tr>`).join('');
+    const totalRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtMoney(tAmt)}</b></td><td><b>${tAmt?'100.0%':'—'}</b></td><td><b>${fmtNum(tCnt)}</b></td><td><b>${fmtMoney(tCnt ? tAmt/tCnt : 0)}</b></td></tr>`;
+    document.getElementById('money-by-method-table').innerHTML = `
+      <thead><tr><th>طريقة الدفع</th><th>المبلغ</th><th>% من الإجمالي</th><th>عدد الدفعات</th><th>متوسط الدفعة</th></tr></thead>
+      <tbody>${rows ? rows+totalRow : emptyRow(5,'لا توجد بيانات')}</tbody>`;
+  })();
 
   // Retention by branch
   const branches = Array.from(new Set(retentionPay.map(p=>p.location).filter(Boolean)));
