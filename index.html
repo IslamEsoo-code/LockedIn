@@ -4859,6 +4859,35 @@ function renderFunnel(){
 function marketingTemplate(){
   return `
     ${pageHeader('الماركتينج', 'الأداء حسب مصدر الإعلان، والعائد على الصرف (يدوي الإدخال)')}
+    <div class="tabs" id="mkt-main-tabs">
+      <div class="tab ${(window.MKT_MAIN_TAB||'new')==='new'?'active':''}" data-tab="new" onclick="setMktMainTab('new')">📣 تقرير الإعلانات (Leads + Received)</div>
+      <div class="tab ${(window.MKT_MAIN_TAB||'new')==='old'?'active':''}" data-tab="old" onclick="setMktMainTab('old')">📊 باقي تقارير الماركتينج</div>
+    </div>
+
+    <div id="mkt-tab-new" style="display:${(window.MKT_MAIN_TAB||'new')==='new'?'block':'none'};">
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📣 تقرير الإعلانات — الإجمالي (Leads + Received من غير تفريق)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportMktAdsReport()">⬇️ Excel</button></div>
+        <div class="badge-note" style="line-height:1.9;">
+          <b>ليد</b> = عميل واحد (من غير تكرار) أول تواصل ليه كان في الفترة المختارة، سواء جه Leads أو Received. &nbsp;•&nbsp;
+          <b>دفع</b> = عنده دفعة عميل جديد (New Comer). &nbsp;•&nbsp;
+          <b>الإيراد</b> = مجموع دفعات العميل الجديد بتاعتهم. &nbsp;•&nbsp;
+          <b>CPL</b> = الصرف ÷ الليدز. &nbsp;•&nbsp; <b>CAC</b> = الصرف ÷ اللي دفعوا. &nbsp;•&nbsp; <b>ROAS</b> = الإيراد ÷ الصرف.<br>
+          صرف <b>Meta</b> (فيس بوك + إنستجرام) بتدخله لكل لغة (English / German). وباقي المنصات كل واحدة لوحدها. الصرف بيتسجل <b>للفترة المختارة</b> (لو غيرتها هتدخل صرف جديد، ولو رجعت لنفس الفترة هتلاقيه محفوظ) وبيتحفظ في المتصفح ده بس. <b>الفلاتر اللي في أول الصفحة (الشهر / اللغة / الموظف) مش بتأثر على التاب ده</b> — ليه فلتره الخاص تحت.
+        </div>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+          <b style="font-size:12.5px;">الشهر:</b>
+          <select id="mkt-new-month" style="width:auto; min-width:150px;" onchange="onMktMonth(this.value)"></select>
+          <b style="font-size:12.5px;">من تاريخ:</b>
+          <input type="date" id="mkt-new-from" style="width:auto;" onchange="onMktDates()">
+          <b style="font-size:12.5px;">إلى تاريخ:</b>
+          <input type="date" id="mkt-new-to" style="width:auto;" onchange="onMktDates()">
+        </div>
+        <div class="kpi-grid" id="mkt-new-kpis" style="margin-bottom:16px;"></div>
+        <div style="overflow:auto;"><table id="mkt-new-table"></table></div>
+      </div>
+    </div>
+
+    <div id="mkt-tab-old" style="display:${(window.MKT_MAIN_TAB||'new')==='old'?'block':'none'};">
     <div class="kpi-grid" id="mkt-kpis"></div>
     <div class="grid-2">
       <div class="panel">
@@ -4884,89 +4913,15 @@ function marketingTemplate(){
       <div class="panel"><div class="panel-title"><span class="bar"></span> قيمة المصدر الحقيقية</div><div style="overflow:auto;"><table id="mkt-source-quality"></table></div></div>
       <div class="panel"><div class="panel-title"><span class="bar"></span> أداء الفروع الحقيقي</div><div style="overflow:auto;"><table id="branch-performance"></table></div></div>
     </div>
-    <div class="grid-2">
+    <div class="grid-2" style="grid-template-columns:1fr;">
       <div class="panel"><div class="panel-title"><span class="bar"></span> 🔀 تداخل القنوات (Received × Leads)</div>
         <div class="badge-note">عملاء ظهروا في القناتين — اتأكد إنك مش بتدفع/بتعدّي تحويل واحد مرتين</div>
         <div id="mkt-overlap-summary" style="margin-bottom:10px;"></div>
         <div style="overflow:auto; max-height:300px;"><table id="mkt-overlap-table"></table></div>
       </div>
-      <div class="panel"><div class="panel-title"><span class="bar"></span> 🔴 Lost Customers</div>
-        <div class="badge-note" style="margin-bottom:6px;">"آخر تواصل" بياخد في الاعتبار مكالمات شيت الفولو أب كمان، مش شيت Received/Leads الأساسي بس</div>
-        <div id="lost-controls" class="badge-note" style="margin-bottom:10px;"></div>
-        <div style="overflow:auto;"><table id="lost-customers"></table></div>
-      </div>
-    </div>
-    <div class="grid-2">
+          </div>
+    <div class="grid-2" style="grid-template-columns:1fr;">
       <div class="panel"><div class="panel-title"><span class="bar"></span> 🚨 Data Leakage / No Owner</div><div style="overflow:auto;"><table id="leakage-table"></table></div></div>
-      <div class="panel"><div class="panel-title"><span class="bar"></span> 💸 Payment Quality</div><div style="overflow:auto;"><table id="payment-quality-table"></table></div></div>
-    </div>
-    <div class="panel">
-      <div class="panel-title"><span class="bar"></span> 🎯 حِمل الفروع وتكلفة الليد والعميل (CPL / CAC) — حسب القناة</div>
-      <div class="badge-note">الأرقام هنا على كل الفترة المختارة في الفلاتر اللي فوق (من غير فلتر الأيام بتاع صفحة المكالمات) عشان الصرف اللي بتدخله يتقارن بنفس الفترة</div>
-      <div class="tabs" id="mkt-channel-tabs">
-        <div class="tab active" data-tab="leads" onclick="setMktChannelTab('leads')">🎯 الليدز (Leads)</div>
-        <div class="tab" data-tab="received" onclick="setMktChannelTab('received')">📞 الريسيفد (Received)</div>
-      </div>
-    </div>
-    <div id="mkt-leads-tab">
-    <div class="panel">
-      <div class="panel-title"><span class="bar"></span> 🏢 حِمل الفرع (ليدز لكل موظف في الفرع)</div>
-      <div class="badge-note">مش بس عدد الليدز المطلق في الفرع — لكن نسبة لعدد الموظفين الشغالين فيه فعليًا، عشان تعرف أي فرع تحت ضغط حقيقي</div>
-      <div style="overflow:auto;"><table id="branch-load-table"></table></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title"><span class="bar"></span> 💰 تكلفة الليد والعميل (CPL / CAC) — إدخال يدوي للصرف</div>
-      <div class="badge-note">مفيش عمود صرف إعلانات في الشيت، فادخل إجمالي الصرف لكل لغة يدويًا وهيتحسب تلقائي. البيانات دي بتتحفظ في المتصفح ده بس (مش هتتشال لو قفلت الصفحة، بس لو فتحت الملف من جهاز تاني هتحتاج تدخلها تاني) &nbsp;•&nbsp; دوس على أي صف تشوف العملاء اللي دفعوا فعلاً (الاسم/الموبايل/المبلغ)</div>
-      <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <b style="font-size:12.5px;">صرف English (بالجنيه)</b>
-          <input id="spend-english" type="number" min="0" step="1" style="width:130px;" placeholder="0" onchange="onSpendChange('English', this.value)">
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <b style="font-size:12.5px;">صرف German (بالجنيه)</b>
-          <input id="spend-german" type="number" min="0" step="1" style="width:130px;" placeholder="0" onchange="onSpendChange('German', this.value)">
-        </div>
-      </div>
-      <div style="overflow:auto;"><table id="cpl-cac-table"></table></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title"><span class="bar"></span> 💰 تكلفة الليد والعميل حسب المصدر (CPL / CAC by Source) — إدخال يدوي للصرف</div>
-      <div class="badge-note">مفيش عمود صرف إعلانات في الشيت، فادخل إجمالي الصرف لكل مصدر يدويًا وهيتحسب تلقائي. البيانات دي بتتحفظ في المتصفح ده بس &nbsp;•&nbsp; دوس على أي صف تشوف العملاء اللي دفعوا فعلاً (الاسم/الموبايل/المبلغ)</div>
-      <div id="cpl-cac-source-inputs" style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;"></div>
-      <div style="overflow:auto;"><table id="cpl-cac-source-table"></table></div>
-    </div>
-    </div>
-    <div id="mkt-received-tab" style="display:none;">
-    <div class="panel">
-      <div class="panel-title"><span class="bar"></span> 🏢 حِمل الفرع (ريسيفد لكل موظف في الفرع)</div>
-      <div class="badge-note">مش بس عدد الريسيفد المطلق في الفرع — لكن نسبة لعدد الموظفين الشغالين فيه فعليًا، عشان تعرف أي فرع تحت ضغط حقيقي</div>
-      <div style="overflow:auto;"><table id="received-branch-load-table"></table></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title"><span class="bar"></span> 💰 تكلفة الليد والعميل (CPL / CAC) — Received — إدخال يدوي للصرف</div>
-      <div class="badge-note">مفيش عمود صرف إعلانات في الشيت، فادخل إجمالي الصرف لكل لغة يدويًا وهيتحسب تلقائي. البيانات دي بتتحفظ في المتصفح ده بس (مش هتتشال لو قفلت الصفحة، بس لو فتحت الملف من جهاز تاني هتحتاج تدخلها تاني) &nbsp;•&nbsp; دوس على أي صف تشوف العملاء اللي دفعوا فعلاً (الاسم/الموبايل/المبلغ)</div>
-      <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <b style="font-size:12.5px;">صرف English (بالجنيه)</b>
-          <input id="received-spend-english" type="number" min="0" step="1" style="width:130px;" placeholder="0" onchange="onSpendChange('English', this.value, 'received')">
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <b style="font-size:12.5px;">صرف German (بالجنيه)</b>
-          <input id="received-spend-german" type="number" min="0" step="1" style="width:130px;" placeholder="0" onchange="onSpendChange('German', this.value, 'received')">
-        </div>
-      </div>
-      <div style="overflow:auto;"><table id="received-cpl-cac-table"></table></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title"><span class="bar"></span> 💰 تكلفة الليد والعميل حسب المصدر (CPL / CAC by Source) — Received — إدخال يدوي للصرف</div>
-      <div class="badge-note">مفيش عمود صرف إعلانات في الشيت، فادخل إجمالي الصرف لكل مصدر يدويًا وهيتحسب تلقائي. البيانات دي بتتحفظ في المتصفح ده بس &nbsp;•&nbsp; دوس على أي صف تشوف العملاء اللي دفعوا فعلاً (الاسم/الموبايل/المبلغ)</div>
-      <div id="received-cpl-cac-source-inputs" style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;"></div>
-      <div style="overflow:auto;"><table id="received-cpl-cac-source-table"></table></div>
-    </div>
     </div>
     <div class="panel"><div class="panel-title"><span class="bar"></span> 🥇 Customer Funnel</div><div class="badge-note">Records → Unique Customers → Registered → Paid → Revenue</div><div style="overflow:auto;"><table id="customer-funnel-table"></table></div></div>
     <div class="panel">
@@ -4974,11 +4929,246 @@ function marketingTemplate(){
       <div class="badge-note">مصدر مختلف عن الجدول اللي فوق: ده بياخد "مين رشّح العميل" من شيت الطلاب (زي أصحاب أو ريكوموندايشن) مش من سجلات المكالمات</div>
       <div style="overflow:auto;"><table id="referal-table"></table></div>
     </div>
+    </div>
   `;
 }
 
+
+/* =========================================================
+   MARKETING — NEW ADS REPORT (Leads + Received combined)
+   - Own filters (month + date range), independent of the global filter.
+   - A "lead" = one unique customer whose FIRST contact (Received or Leads,
+     whichever is earlier) falls in the selected period.
+   - Meta (Facebook + Instagram) spend is entered per language; every other
+     source/platform is its own row with its own spend.
+========================================================= */
+window.MKT_MAIN_TAB = window.MKT_MAIN_TAB || 'new';
+window.MKT_NEW = window.MKT_NEW || {from:null, to:null, month:null};
+window.__mktDefs = [];
+const MKT_META_SOURCES = new Set(['Facebook','Instagram']);
+
+function setMktMainTab(tab){
+  window.MKT_MAIN_TAB = tab;
+  document.querySelectorAll('#mkt-main-tabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===tab));
+  const a = document.getElementById('mkt-tab-new'), b = document.getElementById('mkt-tab-old');
+  if(a) a.style.display = tab==='new' ? 'block' : 'none';
+  if(b) b.style.display = tab==='old' ? 'block' : 'none';
+  if(tab==='old'){ try{ Object.values(window.CHARTS||{}).forEach(ch=>{ try{ ch.resize(); }catch(e){} }); }catch(e){} }
+}
+
+function mktCustomers(){
+  const F = window.DATA_FULL;
+  if(window.__mktCust && window.__mktCust.F===F) return window.__mktCust.list;
+  const payIdx = new Map();
+  F.payments.filter(p=>p.isCoreNewSale && p.phone && p.amount>0).forEach(p=>{
+    F.resolveAliases(p.phone).forEach(a=>{
+      if(!payIdx.has(a)) payIdx.set(a, new Set());
+      payIdx.get(a).add(p);
+    });
+  });
+  const clusters = new Map(); let anon = 0;
+  F.received.concat(F.leads).forEach(c=>{
+    if(!c.datetime) return;
+    const ids = new Set();
+    callPhones(c).forEach(ph=> F.resolveAliases(ph).forEach(a=>ids.add(a)));
+    const cid = ids.size ? Array.from(ids).sort()[0] : ('anon-'+(anon++));
+    let g = clusters.get(cid);
+    if(!g){ g = {first:c, langRec:null, ids:new Set()}; clusters.set(cid, g); }
+    else if(c.datetime < g.first.datetime) g.first = c;
+    ids.forEach(i=>g.ids.add(i));
+    if(classifyCourse(c.course) && (!g.langRec || c.datetime < g.langRec.datetime)) g.langRec = c;
+  });
+  const list = [];
+  clusters.forEach(g=>{
+    const pays = new Set();
+    g.ids.forEach(i=>{ const st = payIdx.get(i); if(st) st.forEach(p=>pays.add(p)); });
+    let revenue = 0; pays.forEach(p=>{ revenue += p.amount; });
+    list.push({
+      date: g.first.datetime,
+      source: g.first.source || 'غير معروف',
+      lang: g.langRec ? classifyCourse(g.langRec.course) : null,
+      paid: pays.size>0, revenue
+    });
+  });
+  window.__mktCust = {F, list};
+  return list;
+}
+
+function mktMonthEnd(mk){ const [y,m] = mk.split('-').map(Number); return dayKey(new Date(y, m, 0)); }
+
+function mktInitState(all){
+  const S = window.MKT_NEW;
+  if(S.from && S.to) return;
+  const months = Array.from(new Set(all.map(c=>monthKey(c.date)))).sort();
+  const last = months[months.length-1];
+  if(last){ S.month = last; S.from = last+'-01'; S.to = mktMonthEnd(last); }
+}
+function onMktMonth(v){
+  const S = window.MKT_NEW, all = mktCustomers();
+  if(v==='custom') return;
+  if(v==='all'){
+    const ks = all.map(c=>dayKey(c.date)).sort();
+    S.from = ks[0]; S.to = ks[ks.length-1];
+  }else{
+    S.from = v+'-01'; S.to = mktMonthEnd(v);
+  }
+  S.month = v;
+  renderMktAdsReport();
+}
+function onMktDates(){
+  const S = window.MKT_NEW;
+  let f = document.getElementById('mkt-new-from').value, t = document.getElementById('mkt-new-to').value;
+  if(!f || !t) return;
+  if(f > t){ const x=f; f=t; t=x; }
+  S.from = f; S.to = t; S.month = 'custom';
+  renderMktAdsReport();
+}
+function mktCalc(leads, paid, rev, spend){
+  return {
+    conv: leads ? paid/leads*100 : null,
+    cpl: spend && leads ? spend/leads : null,
+    cac: spend && paid ? spend/paid : null,
+    roas: spend ? rev/spend : null,
+  };
+}
+function onMktSpend(i, value){
+  const S = window.MKT_NEW, key = S.from+'|'+S.to;
+  const all = loadManual('mktAdsSpend', {});
+  all[key] = all[key] || {};
+  all[key][window.__mktDefs[i].id] = parseFloat(value) || 0;
+  saveManual('mktAdsSpend', all);
+  mktUpdateCosts();
+}
+function mktSpendFor(id){
+  const S = window.MKT_NEW;
+  const all = loadManual('mktAdsSpend', {});
+  return ((all[S.from+'|'+S.to]||{})[id]) || 0;
+}
+function mktRowsComputed(){
+  // returns [{def, spend, calc}] for data rows + meta subtotal + grand total
+  const defs = window.__mktDefs;
+  const data = defs.map((d,i)=>{ const spend = mktSpendFor(d.id); return {d, i, spend, calc: mktCalc(d.leads,d.paid,d.rev,spend)}; });
+  const sumOf = list=>({
+    leads:list.reduce((x,r)=>x+r.d.leads,0), paid:list.reduce((x,r)=>x+r.d.paid,0),
+    rev:list.reduce((x,r)=>x+r.d.rev,0), spend:list.reduce((x,r)=>x+r.spend,0)
+  });
+  const metaRows = data.filter(r=>r.d.group==='meta');
+  const mt = sumOf(metaRows), gt = sumOf(data);
+  return {data, meta:{...mt, calc:mktCalc(mt.leads,mt.paid,mt.rev,mt.spend)}, total:{...gt, calc:mktCalc(gt.leads,gt.paid,gt.rev,gt.spend)}};
+}
+const mktMoney = n=> fmtMoney(Math.round(n));
+// CPL / CAC are small numbers — keep one decimal under 100 so 5.9 doesn't show as 6
+const mktUnit = n=> n<100 ? (Math.round(n*10)/10).toLocaleString('en-US')+' ج.م' : mktMoney(n);
+const mktOrDash = (v,f)=> v===null||v===undefined ? '—' : f(v);
+function mktUpdateCosts(){
+  const R = mktRowsComputed();
+  const set = (id,txt)=>{ const el=document.getElementById(id); if(el) el.textContent = txt; };
+  const fill = (pre, calc, spend)=>{
+    if(spend!==undefined) set(pre+'-spend', spend ? mktMoney(spend) : '—');
+    set(pre+'-cpl', mktOrDash(calc.cpl, mktUnit));
+    set(pre+'-cac', mktOrDash(calc.cac, mktUnit));
+    set(pre+'-roas', mktOrDash(calc.roas, v=>v.toFixed(1)+'x'));
+  };
+  R.data.forEach(r=> fill('mkt-r'+r.i, r.calc));
+  if(document.getElementById('mkt-meta-total-spend')) fill('mkt-meta-total', R.meta.calc, R.meta.spend);
+  fill('mkt-grand', R.total.calc, R.total.spend);
+  const T = R.total;
+  const kpis = [
+    {icon:'👥', color:'#7c5cff', value:fmtNum(T.leads), label:'إجمالي الليدز (Leads + Received)'},
+    {icon:'✅', color:'#10b981', value:fmtNum(T.paid)+(T.leads?` (${fmtPct(T.paid/T.leads*100)})`:''), label:'دفعوا (نسبة التحويل)'},
+    {icon:'💰', color:'#f59e0b', value:mktMoney(T.rev), label:'إيراد العملاء الجدد'},
+    {icon:'💸', color:'#ef4444', value:T.spend?mktMoney(T.spend):'—', label:'إجمالي الصرف'},
+    {icon:'🎯', color:'#3b82f6', value:mktOrDash(T.calc.cpl, mktUnit), label:'CPL — تكلفة الليد'},
+    {icon:'🏷️', color:'#ec4899', value:mktOrDash(T.calc.cac, mktUnit), label:'CAC — تكلفة العميل'},
+    {icon:'📈', color:'#14b8a6', value:mktOrDash(T.calc.roas, v=>v.toFixed(1)+'x'), label:'ROAS'},
+  ];
+  document.getElementById('mkt-new-kpis').innerHTML = kpis.map(k=>`<div class="kpi-card"><div class="kpi-top">
+      <div class="kpi-icon" style="background:${k.color}33;">${k.icon}</div>
+      <div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div>
+    </div></div>`).join('');
+}
+
+function renderMktAdsReport(){
+  const table = document.getElementById('mkt-new-table');
+  if(!table) return;
+  const all = mktCustomers();
+  mktInitState(all);
+  const S = window.MKT_NEW;
+
+  // filters UI
+  const months = Array.from(new Set(all.map(c=>monthKey(c.date)))).sort().reverse();
+  const sel = document.getElementById('mkt-new-month');
+  sel.innerHTML = '<option value="all">كل الفترة</option>' + months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('')
+    + (S.month==='custom' ? '<option value="custom">فترة مخصصة</option>' : '');
+  sel.value = S.month || 'all';
+  document.getElementById('mkt-new-from').value = S.from || '';
+  document.getElementById('mkt-new-to').value = S.to || '';
+
+  const inRange = all.filter(c=>{ const k = dayKey(c.date); return k>=S.from && k<=S.to; });
+  const agg = list=>({leads:list.length, paid:list.filter(x=>x.paid).length, rev:list.reduce((x,c)=>x+c.revenue,0)});
+  const defs = [];
+  const meta = inRange.filter(c=>MKT_META_SOURCES.has(c.source));
+  ['English','German'].forEach(l=> defs.push({id:'meta:'+l, group:'meta', label:'Meta (Facebook + Instagram)', sub:l, ...agg(meta.filter(c=>c.lang===l))}));
+  const metaOther = meta.filter(c=>c.lang!=='English' && c.lang!=='German');
+  if(metaOther.length) defs.push({id:'meta:other', group:'meta', label:'Meta (Facebook + Instagram)', sub:'لغة غير محددة', ...agg(metaOther)});
+  const bySrc = new Map();
+  inRange.filter(c=>!MKT_META_SOURCES.has(c.source)).forEach(c=>{
+    if(!bySrc.has(c.source)) bySrc.set(c.source, []);
+    bySrc.get(c.source).push(c);
+  });
+  Array.from(bySrc.entries()).sort((a,b)=>b[1].length-a[1].length).forEach(([src,list])=>{
+    defs.push({id:'src:'+src, group:'other', label:src, sub:'كل اللغات', ...agg(list)});
+  });
+  window.__mktDefs = defs;
+
+  const spendInput = i=>`<input type="number" min="0" step="1" value="${mktSpendFor(defs[i].id)||''}" placeholder="0" style="width:120px;" oninput="onMktSpend(${i}, this.value)">`;
+  const row = (i)=>{
+    const d = defs[i];
+    return `<tr><td><b>${esc(d.label)}</b></td><td>${esc(d.sub)}</td><td>${spendInput(i)}</td>
+      <td>${fmtNum(d.leads)}</td><td>${fmtNum(d.paid)}</td><td>${d.leads?fmtPct(d.paid/d.leads*100):'—'}</td>
+      <td id="mkt-r${i}-cpl">—</td><td id="mkt-r${i}-cac">—</td><td><b>${mktMoney(d.rev)}</b></td><td id="mkt-r${i}-roas">—</td></tr>`;
+  };
+  const sumRow = (pre, title, T)=>`<tr style="border-top:2px solid var(--border); background:var(--panel-2);"><td colspan="2"><b>${title}</b></td>
+      <td id="${pre}-spend"><b>—</b></td><td><b>${fmtNum(T.leads)}</b></td><td><b>${fmtNum(T.paid)}</b></td><td><b>${T.leads?fmtPct(T.paid/T.leads*100):'—'}</b></td>
+      <td id="${pre}-cpl"><b>—</b></td><td id="${pre}-cac"><b>—</b></td><td><b>${mktMoney(T.rev)}</b></td><td id="${pre}-roas"><b>—</b></td></tr>`;
+  const sectionRow = t=>`<tr><td colspan="10" style="font-weight:800; padding-top:14px; color:var(--purple);">${t}</td></tr>`;
+  const sum = list=>({leads:list.reduce((x,d)=>x+d.leads,0), paid:list.reduce((x,d)=>x+d.paid,0), rev:list.reduce((x,d)=>x+d.rev,0)});
+
+  let body = '';
+  const metaIdx = defs.map((d,i)=>d.group==='meta'?i:-1).filter(i=>i>=0);
+  const otherIdx = defs.map((d,i)=>d.group==='other'?i:-1).filter(i=>i>=0);
+  body += sectionRow('📘 إعلانات Meta — فيس بوك + إنستجرام (الصرف لكل لغة)');
+  body += metaIdx.map(row).join('');
+  body += sumRow('mkt-meta-total', 'إجمالي Meta', sum(metaIdx.map(i=>defs[i])));
+  body += sectionRow('🌐 باقي المنصات والمصادر (كل واحدة لوحدها — سيب الصرف فاضي لو مفيش)');
+  body += otherIdx.length ? otherIdx.map(row).join('') : emptyRow(10,'لا توجد مصادر تانية في الفترة دي');
+  body += sumRow('mkt-grand', 'الإجمالي (كل المصادر)', sum(defs));
+
+  table.innerHTML = `<thead><tr><th>المنصة / المصدر</th><th>اللغة</th><th>الصرف (بالجنيه)</th><th>ليدز</th><th>دفعوا</th><th>نسبة التحويل</th><th>CPL</th><th>CAC</th><th>الإيراد</th><th>ROAS</th></tr></thead><tbody>${inRange.length ? body : emptyRow(10,'لا توجد بيانات في الفترة دي')}</tbody>`;
+  mktUpdateCosts();
+}
+
+function exportMktAdsReport(){
+  const R = mktRowsComputed();
+  if(!R.data.length){ alert('لا توجد بيانات لتصديرها دلوقتي'); return; }
+  const S = window.MKT_NEW;
+  const f = (v,fn)=> v===null||v===undefined ? '' : fn(v);
+  const line = (label, sub, spend, leads, paid, rev, c)=>[label, sub, spend||0, leads, paid, c.conv===null?'':Number(c.conv.toFixed(1)), f(c.cpl,v=>Math.round(v)), f(c.cac,v=>Math.round(v)), Math.round(rev), f(c.roas,v=>Number(v.toFixed(2)))];
+  const rows = [];
+  R.data.filter(r=>r.d.group==='meta').forEach(r=>rows.push(line(r.d.label, r.d.sub, r.spend, r.d.leads, r.d.paid, r.d.rev, r.calc)));
+  rows.push(line('إجمالي Meta','', R.meta.spend, R.meta.leads, R.meta.paid, R.meta.rev, R.meta.calc));
+  R.data.filter(r=>r.d.group==='other').forEach(r=>rows.push(line(r.d.label, r.d.sub, r.spend, r.d.leads, r.d.paid, r.d.rev, r.calc)));
+  rows.push(line('الإجمالي (كل المصادر)','', R.total.spend, R.total.leads, R.total.paid, R.total.rev, R.total.calc));
+  const header = ['المنصة / المصدر','اللغة','الصرف','ليدز','دفعوا','نسبة التحويل %','CPL','CAC','الإيراد','ROAS'];
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  ws['!cols'] = header.map((h,i)=>({wch: i===0?28:14}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Ads report');
+  XLSX.writeFile(wb, `marketing_ads_${S.from}_${S.to}.xlsx`);
+}
+
 function renderMarketing(){
-  renderMarketingChannelReports();
+  try{ renderMktAdsReport(); }catch(err){ console.error('ads report failed', err); }
   const {allCalls, payments} = window.DATA;
   const sources = Array.from(new Set(allCalls.map(c=>c.source).filter(Boolean)));
   const months = lastNMonthKeys(payments, 3);
@@ -5180,11 +5370,6 @@ function renderBusinessDecisionReports(){
     <tr><td>Paid Customers (Payments)</td><td>${fmtNum(paid.length)}</td><td>${fmtPct(registered.length?paid.length/registered.length*100:0)}</td></tr>
     <tr><td>Revenue Collected (Payment Month)</td><td><b>${fmtMoney(revenue)}</b></td><td>—</td></tr></tbody>`;
 
-  // Payment quality: every payment type, regardless of attribution.
-  const types=Array.from(new Set(payments.map(p=>p.paymentType||'غير محدد'))).sort();
-  const pq=document.getElementById('payment-quality-table');
-  if(pq) pq.innerHTML='<thead><tr><th>Payment Type</th><th>معاملات</th><th>عملاء فريدون</th><th>Revenue</th><th>متوسط المعاملة</th></tr></thead><tbody>'+(types.map(type=>{const a=payments.filter(p=>(p.paymentType||'غير محدد')===type), n=new Set(a.map(p=>p.phone).filter(Boolean)).size, rev=a.reduce((s,p)=>s+p.amount,0); return `<tr><td>${esc(type)}</td><td>${fmtNum(a.length)}</td><td>${fmtNum(n)}</td><td><b>${fmtMoney(rev)}</b></td><td>${fmtMoney(a.length?rev/a.length:0)}</td></tr>`;}).join('')||emptyRow(5,'لا توجد بيانات'))+'</tbody>';
-
   // Leakage is intentionally based on payment matching, never Admin Name.
   const leakage=payments.filter(p=>!p.attributedEmployee||!p.phone).map(p=>({p,reason:!p.phone?'Missing phone number':'No matching call / no owner'}));
   const lt=document.getElementById('leakage-table');
@@ -5203,29 +5388,7 @@ function renderBusinessDecisionReports(){
     }
     tot.innerHTML = `<b>Unattributed Revenue:</b> ${fmtMoney(leakage.reduce((s,x)=>s+x.p.amount,0))} — ${fmtNum(leakage.length)} دفعة تحتاج مراجعة`;
   }
-
-  // ---- Lost customers (unified groups incl. follow-ups) ----
-  const lostState=window.LOST_FILTER||{age:'3',employee:'all',branch:'all',source:'all'}; window.LOST_FILTER=lostState;
-  const options=(arr,current,all)=>`<option value="all">${all}</option>`+arr.map(x=>`<option value="${esc(x)}" ${x===current?'selected':''}>${esc(x)}</option>`).join('');
-  const controls=document.getElementById('lost-controls');
-  if(controls) controls.innerHTML=`منذ آخر تواصل: <select onchange="updateLostFilter('age',this.value)"><option value="3" ${lostState.age==='3'?'selected':''}>3+ أيام</option><option value="7" ${lostState.age==='7'?'selected':''}>7+ أيام</option><option value="14" ${lostState.age==='14'?'selected':''}>14+ يوم</option><option value="30" ${lostState.age==='30'?'selected':''}>30+ يوم</option></select> &nbsp; موظف: <select onchange="updateLostFilter('employee',this.value)">${options(Array.from(new Set(calls.map(c=>c.agent).filter(Boolean))).sort(),lostState.employee,'كل الموظفين')}</select> &nbsp; فرع: <select onchange="updateLostFilter('branch',this.value)">${options(Array.from(new Set(calls.map(c=>c.branch).filter(Boolean))).sort(),lostState.branch,'كل الفروع')}</select> &nbsp; مصدر: <select onchange="updateLostFilter('source',this.value)">${options(Array.from(new Set(calls.map(c=>c.source).filter(Boolean))).sort(),lostState.source,'كل المصادر')}</select>`;
-  const now=Date.now(), age=Number(lostState.age);
-  const lost=groups.filter(g=>{
-    const c=g.last, days=c.datetime?(now-c.datetime)/86400000:0;
-    return !g.paid&&days>=age
-      &&(lostState.employee==='all'||c.agent===lostState.employee)
-      &&(lostState.branch==='all'||c.branch===lostState.branch)
-      &&(lostState.source==='all'||c.source===lostState.source);
-  }).sort((a,b)=>(a.last.datetime||0)-(b.last.datetime||0));
-  renderPagedTable('lost-customers',
-    '<thead><tr><th>العميل</th><th>الرقم</th><th>الموظف</th><th>Source</th><th>Branch</th><th>أول تواصل</th><th>آخر تواصل</th><th>Records</th><th>منذ</th></tr></thead>',
-    lost.map(g=>{
-      const c=g.last, days=c.datetime?Math.floor((now-c.datetime)/86400000):0;
-      const ph = callPhones(c)[0] || (g.phones&&g.phones[0]) || '—';
-      return `<tr><td>${esc(c.name||'—')}</td><td>${esc(ph)}</td><td>${esc(c.agent||'—')}</td><td>${esc(c.source||'—')}</td><td>${esc(c.branch||'—')}</td><td>${g.first.datetime?g.first.datetime.toLocaleDateString('en-GB'):'—'}</td><td>${c.datetime?c.datetime.toLocaleDateString('en-GB'):'—'}</td><td>${fmtNum(g.records)}</td><td><b>${days} يوم</b></td></tr>`;
-    }), 20);
 }
-window.updateLostFilter=function(k,v){window.LOST_FILTER=window.LOST_FILTER||{};window.LOST_FILTER[k]=v;renderBusinessDecisionReports();};
 </script>
 <script>
 /* =========================================================
