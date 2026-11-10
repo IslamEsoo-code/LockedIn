@@ -3639,7 +3639,15 @@ function renderPeriodComparison(channel){
     const noAction = list.filter(c=>leadResultIs(c,'No Action Yet')).length;
     const answered = list.filter(c=>leadResultIs(c,'Answer')).length;
     const reg = list.filter(c=>customerHasCorePayment(c)).length;
-    return { total, answered, noAction, reg,
+    // Money for this channel, by payment date inside the period (same convention as the main Compare page)
+    const chName = channel==='received' ? 'Received' : 'Leads';
+    const F = window.DATA_FULL || {};
+    const inR = d=>{ const k = dayKey(d); return !!k && (!from || k>=from) && (!to || k<=to); };
+    const chPays = (F.payments||[]).filter(x=> x.date && inR(x.date) && x.attributedChannel===chName);
+    const money = chPays.reduce((t,x)=>t+x.amount, 0);
+    const offerBlocks = (F.debtBlocks||[]).filter(b=> b.ref && b.ref.date && inR(b.ref.date) && b.ref.attributedChannel===chName);
+    const offersTotal = offerBlocks.reduce((t,b)=>t+b.fullPrice, 0);
+    return { total, answered, noAction, reg, money, offersTotal,
       answerRate: total? answered/total*100 : 0,
       noActionRate: total? noAction/total*100 : 0,
       convRate: total? reg/total*100 : 0 };
@@ -3655,6 +3663,8 @@ function renderPeriodComparison(channel){
     {label:'نسبة الرد', av: fmtPct(a.answerRate), bv: fmtPct(b.answerRate), delta: b.answerRate-a.answerRate, pct:true},
     {label:'نسبة No Action', av: fmtPct(a.noActionRate), bv: fmtPct(b.noActionRate), delta: b.noActionRate-a.noActionRate, pct:true},
     {label:'نسبة التحويل', av: fmtPct(a.convRate), bv: fmtPct(b.convRate), delta: b.convRate-a.convRate, pct:true},
+    {label:'💰 الفلوس المحصّلة', av: fmtMoney(a.money), bv: fmtMoney(b.money), delta: b.money-a.money, money:true, base:a.money},
+    {label:'🧾 إجمالي العروض', av: fmtMoney(a.offersTotal), bv: fmtMoney(b.offersTotal), delta: b.offersTotal-a.offersTotal, money:true, base:a.offersTotal},
   ];
   el.innerHTML = `
     <thead><tr><th>المؤشر</th><th style="color:#7c5cff;">Period A</th><th style="color:#ec4899;">Period B</th><th>الفرق (B - A)</th></tr></thead>
@@ -3662,7 +3672,9 @@ function renderPeriodComparison(channel){
       const good = r.delta>0;
       const color = r.delta===0 ? 'var(--text-dim)' : (good ? 'var(--green)' : 'var(--red)');
       const arrow = r.delta===0 ? '—' : (good ? '▲' : '▼');
-      const deltaText = r.pct ? `${Math.abs(r.delta).toFixed(1)} نقطة` : fmtNum(Math.abs(r.delta));
+      const deltaText = r.pct ? `${Math.abs(r.delta).toFixed(1)} نقطة`
+        : r.money ? fmtMoney(Math.abs(r.delta)) + (r.base ? ` (${Math.abs(r.delta/r.base*100).toFixed(1)}%)` : '')
+        : fmtNum(Math.abs(r.delta));
       return `<tr><td>${r.label}</td><td>${r.av}</td><td>${r.bv}</td><td style="color:${color}; font-weight:700;">${arrow} ${deltaText}</td></tr>`;
     }).join('')}</tbody>`;
 }
