@@ -3633,20 +3633,30 @@ function renderPeriodComparison(channel){
     if(to && k > to) return false;
     return true;
   }
+  const payIndex = new Map();
+  (window.DATA_FULL.payments||[]).filter(p=>p.countsAsEmployeeRevenue && p.phone && p.amount>0).forEach(p=>{
+    window.DATA_FULL.resolveAliases(p.phone).forEach(a=>{
+      if(!payIndex.has(a)) payIndex.set(a, new Set());
+      payIndex.get(a).add(p);
+    });
+  });
   function stats(from, to){
     const list = leads.filter(c=>inPeriod(c, from, to));
     const total = list.length;
     const noAction = list.filter(c=>leadResultIs(c,'No Action Yet')).length;
     const answered = list.filter(c=>leadResultIs(c,'Answer')).length;
     const reg = list.filter(c=>customerHasCorePayment(c)).length;
-    // Money for this channel, by payment date inside the period (same convention as the main Compare page)
-    const chName = channel==='received' ? 'Received' : 'Leads';
-    const F = window.DATA_FULL || {};
-    const inR = d=>{ const k = dayKey(d); return !!k && (!from || k>=from) && (!to || k<=to); };
-    const chPays = (F.payments||[]).filter(x=> x.date && inR(x.date) && x.attributedChannel===chName);
-    const money = chPays.reduce((t,x)=>t+x.amount, 0);
-    const offerBlocks = (F.debtBlocks||[]).filter(b=> b.ref && b.ref.date && inR(b.ref.date) && b.ref.attributedChannel===chName);
-    const offersTotal = offerBlocks.reduce((t,b)=>t+b.fullPrice, 0);
+    // Money = payments of the leads who entered in this period (same cohort logic as the daily table,
+    // so the numbers tie together). Offers = full price of the deals bought by that same cohort.
+    const cohort = new Set();
+    list.forEach(c=>{
+      if(!customerHasCorePayment(c)) return;
+      callPhones(c).forEach(ph=> window.DATA_FULL.resolveAliases(ph).forEach(a=>{
+        const set = payIndex.get(a); if(set) set.forEach(x=>cohort.add(x));
+      }));
+    });
+    let money = 0; cohort.forEach(x=>{ money += x.amount; });
+    const offersTotal = ((window.DATA_FULL||{}).debtBlocks||[]).filter(b=> cohort.has(b.ref)).reduce((t,b)=>t+b.fullPrice, 0);
     return { total, answered, noAction, reg, money, offersTotal,
       answerRate: total? answered/total*100 : 0,
       noActionRate: total? noAction/total*100 : 0,
