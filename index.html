@@ -348,6 +348,7 @@ try{ document.documentElement.setAttribute('data-theme', JSON.parse(localStorage
     </div>
     <div class="nav-item active" data-page="overview" onclick="showPage('overview')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg> نظرة عامة</div>
     <div class="nav-item" data-page="calls" onclick="showPage('calls')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.7 2z"/></svg> المكالمات والليدز</div>
+    <div class="nav-item" data-page="total" onclick="showPage('total')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg> الإجمالي الكلي</div>
     <div class="nav-item" data-page="employees" onclick="showPage('employees')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg> أداء الموظفين</div>
     <div class="nav-item" data-page="money" onclick="showPage('money')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg> الفلوس والتارجت</div>
     <div class="nav-item" data-page="marketing" onclick="showPage('marketing')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2.5-7.5z"/></svg> الماركتينج</div>
@@ -1471,6 +1472,47 @@ function uniqueCustomerCalls(calls){
   return Array.from(map.values());
 }
 function uniqueCustomerCount(calls){ return uniqueCustomerCalls(calls).length; }
+
+/* Money collected from ONE customer = every new-sale (New Comer) payment on any of
+   the customer's phone aliases. Index is built once per data load. */
+function customerCoreRevenue(call){
+  const F = window.DATA_FULL;
+  if(!window.__coreRevIdx || window.__coreRevIdx.F!==F){
+    const idx = new Map();
+    F.payments.filter(p=>p.isCoreNewSale && p.phone && p.amount>0).forEach(p=>{
+      F.resolveAliases(p.phone).forEach(a=>{ if(!idx.has(a)) idx.set(a,new Set()); idx.get(a).add(p); });
+    });
+    window.__coreRevIdx = {F, idx};
+  }
+  const idx = window.__coreRevIdx.idx, seen = new Set();
+  callPhones(call).forEach(ph=> window.DATA_FULL.resolveAliases(ph).forEach(a=>{ const st=idx.get(a); if(st) st.forEach(pp=>seen.add(pp)); }));
+  let sum = 0; seen.forEach(pp=>{ sum += pp.amount; });
+  return sum;
+}
+/* Logged calls (History column of the leads sheet) of ONE customer, oldest first. */
+function leadActionsFor(call){
+  const F = window.DATA_FULL;
+  if(!window.__leadActIdx || window.__leadActIdx.F!==F){
+    const idx = new Map();
+    (F.leadHistoryActions||[]).forEach(a=>{
+      callPhones(a).forEach(ph=> F.resolveAliases(ph).forEach(al=>{ if(!idx.has(al)) idx.set(al,new Set()); idx.get(al).add(a); }));
+    });
+    window.__leadActIdx = {F, idx};
+  }
+  const idx = window.__leadActIdx.idx, mine = new Set();
+  callPhones(call).forEach(ph=> F.resolveAliases(ph).forEach(al=>{ const st=idx.get(al); if(st) st.forEach(a=>mine.add(a)); }));
+  return Array.from(mine).filter(a=>a.datetime).sort((x,y)=>x.datetime-y.datetime);
+}
+const SHIFT_START_HOUR = 10, SHIFT_END_HOUR = 22; // shift = 10:00 -> 22:00
+const inShiftHour = h => h>=SHIFT_START_HOUR && h<SHIFT_END_HOUR;
+function fmtDuration(min){
+  if(min===null || min===undefined || isNaN(min)) return '—';
+  if(min<1) return 'أقل من دقيقة';
+  if(min<60) return Math.round(min)+' دقيقة';
+  if(min<1440) return (min/60).toFixed(1)+' ساعة';
+  return (min/1440).toFixed(1)+' يوم';
+}
+
 /* Fast paid check: precomputed alias-expanded set built once in
    processAllData — was previously re-filtering ALL payments per customer. */
 function customerHasCorePayment(call){
@@ -1585,6 +1627,7 @@ function renderAllPages(){
     ${filterBarTemplate()}
     <div class="page active" id="page-overview">${overviewTemplate()}</div>
     <div class="page" id="page-calls">${callsTemplate()}</div>
+    <div class="page" id="page-total">${totalTemplate()}</div>
     <div class="page" id="page-employees">${employeesTemplate()}</div>
     <div class="page" id="page-money">${moneyTemplate()}</div>
     <div class="page" id="page-marketing">${marketingTemplate()}</div>
@@ -1592,7 +1635,7 @@ function renderAllPages(){
     <div class="page" id="page-compare">${compareTemplate()}</div>
   `;
   mc.innerHTML = html;
-  [renderOverview, renderCalls, renderEmployees, renderMoney, renderMarketing, renderFunnel, renderCompare].forEach(fn=>{
+  [renderOverview, renderCalls, renderTotal, renderEmployees, renderMoney, renderMarketing, renderFunnel, renderCompare].forEach(fn=>{
     try{ fn(); }catch(err){ console.error(fn.name+' failed:', err); }
   });
   try{ renderBusinessDecisionReports(); }catch(err){ console.error('business reports failed:', err); }
@@ -2232,6 +2275,19 @@ function callsTemplate(){
       <div class="kpi-grid" id="leads-insight-kpis"></div>
     </div>
 
+    <div class="panel" id="panel-leads-shift">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ⏰ نسبة الرد جوا الشيفت وبره الشيفت (حسب وقت وصول الليد)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-shift-table','leads_answer_rate_by_shift')">⬇️ Excel</button></div>
+      <div class="badge-note">الشيفت = من 10 الصبح لـ 10 بليل. الليد بيتحسب <b>جوا الشيفت</b> أو <b>بره الشيفت</b> حسب الساعة اللي نزل فيها (DateTime). نسبة الرد = Answer ÷ إجمالي الليدز بتوع الفترة دي.</div>
+      <div style="overflow:auto;"><table id="leads-shift-table"></table></div>
+    </div>
+
+    <div class="panel" id="panel-leads-first-contact">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ⏱️ أول تواصل بعد نزول الليد بقد إيه؟</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-first-contact-table','leads_first_contact_delay')">⬇️ Excel</button></div>
+      <div class="badge-note">الوقت بين نزول الليد (DateTime) وأول مكالمة اتسجلت له بعد كده في عمود History. المكالمات القديمة اللي قبل نزول الليد مش بتتحسب. "لسه ما اتكلمش" = مفيش أي مكالمة مسجلة بعد نزوله.</div>
+      <div class="kpi-grid" id="leads-first-contact-kpis" style="margin-bottom:14px;"></div>
+      <div style="overflow:auto;"><table id="leads-first-contact-table"></table></div>
+    </div>
+
     <div class="grid-2">
       <div class="panel">
         <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> نسبة الرد حسب المصدر</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-answer-by-source','answer_rate_by_source')">⬇️ Excel</button></div>
@@ -2597,6 +2653,8 @@ function renderCalls(){
   renderLoadVsQuality('leads');
   renderSourceSegmentMatrix('leads');
   renderLeadInsights('leads');
+  try{ renderLeadShift(); }catch(err){ console.error('shift report failed', err); }
+  try{ renderLeadFirstContact(); }catch(err){ console.error('first contact report failed', err); }
   renderLeadsGeoDistribution('leads');
   renderLeadDemographics('leads');
   renderLeadJobTable('leads');
@@ -3313,6 +3371,90 @@ function drillCplCacPaidBySourceChannel(src, channel){
   document.getElementById('drill-modal-overlay').style.display = 'flex';
 }
 
+
+function renderLeadShift(){
+  const el = document.getElementById('leads-shift-table');
+  if(!el) return;
+  const leads = channelList('leads').filter(c=>c.datetime);
+  const mk = ()=>({total:0, answered:0, noAnswer:0, noAction:0});
+  const inS = mk(), outS = mk();
+  leads.forEach(c=>{
+    const g = inShiftHour(c.datetime.getHours()) ? inS : outS;
+    g.total++;
+    if(leadResultIs(c,'Answer')) g.answered++;
+    else if(leadResultIs(c,'No Answer')) g.noAnswer++;
+    else if(leadResultIs(c,'No Action Yet')) g.noAction++;
+  });
+  const all = {total:inS.total+outS.total, answered:inS.answered+outS.answered, noAnswer:inS.noAnswer+outS.noAnswer, noAction:inS.noAction+outS.noAction};
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const cnt = (n,d)=> `${fmtNum(n)} <span style="color:var(--text-dim); font-size:11px;">(${pct(n,d)})</span>`;
+  const row = (label,g,bold)=>{
+    const other = g.total-g.answered-g.noAnswer-g.noAction;
+    const b = t=> bold ? `<b>${t}</b>` : t;
+    return `<tr${bold?' style="border-top:2px solid var(--border);"':''}><td>${b(label)}</td><td>${b(fmtNum(g.total))}</td><td>${b(pct(g.total, all.total))}</td>
+      <td>${b(fmtNum(g.answered))}</td><td style="font-weight:800; color:var(--green);">${pct(g.answered,g.total)}</td>
+      <td>${cnt(g.noAnswer,g.total)}</td><td>${cnt(g.noAction,g.total)}</td><td>${cnt(other,g.total)}</td></tr>`;
+  };
+  el.innerHTML = `<thead><tr><th>وقت وصول الليد</th><th>إجمالي الليدز</th><th>% من كل الليدز</th><th>تم الرد (Answer)</th><th>نسبة الرد</th><th>No Answer</th><th>No Action Yet</th><th>أخرى (Wrong Number...)</th></tr></thead>
+    <tbody>${all.total ? row('جوا الشيفت (10ص – 10م)', inS) + row('بره الشيفت (10م – 10ص)', outS) + row('الإجمالي', all, true) : emptyRow(8,'لا توجد بيانات')}</tbody>`;
+}
+
+function renderLeadFirstContact(){
+  const el = document.getElementById('leads-first-contact-table');
+  if(!el) return;
+  const kpiEl = document.getElementById('leads-first-contact-kpis');
+  const hasHist = (window.DATA_FULL.leadHistoryActions||[]).length>0;
+  if(!hasHist){
+    kpiEl.innerHTML = '';
+    el.innerHTML = `<tbody>${emptyRow(7,'مفيش عمود History في شيت الليدز — ماقدرتش أحسب وقت أول تواصل')}</tbody>`;
+    return;
+  }
+  const leads = channelList('leads').filter(c=>c.datetime);
+  const BUCKETS = [
+    {label:'خلال 5 دقايق', max:5}, {label:'5 – 15 دقيقة', max:15}, {label:'15 – 30 دقيقة', max:30},
+    {label:'30 دقيقة – ساعة', max:60}, {label:'1 – 3 ساعات', max:180}, {label:'3 – 12 ساعة', max:720},
+    {label:'12 – 24 ساعة', max:1440}, {label:'أكتر من 24 ساعة', max:Infinity}, {label:'لسه ما اتكلمش', none:true},
+  ];
+  const mk = ()=>BUCKETS.map(()=>0);
+  const cols = {all:mk(), inS:mk(), outS:mk()};
+  const delays = {all:[], inS:[], outS:[]};
+  leads.forEach(c=>{
+    const first = leadActionsFor(c).find(a=>a.datetime >= c.datetime);
+    const which = inShiftHour(c.datetime.getHours()) ? 'inS' : 'outS';
+    let bi;
+    if(!first){ bi = BUCKETS.length-1; }
+    else{
+      const min = (first.datetime - c.datetime)/60000;
+      bi = BUCKETS.findIndex(b=>!b.none && min<=b.max);
+      delays.all.push(min); delays[which].push(min);
+    }
+    cols.all[bi]++; cols[which][bi]++;
+  });
+  const sum = a=>a.reduce((x,y)=>x+y,0);
+  const tot = {all:sum(cols.all), inS:sum(cols.inS), outS:sum(cols.outS)};
+  const median = a=>{ if(!a.length) return null; const x=a.slice().sort((p,q)=>p-q), m=Math.floor(x.length/2); return x.length%2 ? x[m] : (x[m-1]+x[m])/2; };
+  const avg = a=> a.length ? sum(a)/a.length : null;
+  const within = (a,lim)=> a.length ? a.filter(v=>v<=lim).length : 0;
+  const contacted = delays.all.length;
+  const kpis = [
+    {icon:'⏱️', color:'#7c5cff', value:fmtDuration(median(delays.all)), label:'الوسيط (نص الليدز اتكلموا قبل الوقت ده)'},
+    {icon:'📊', color:'#3b82f6', value:fmtDuration(avg(delays.all)), label:'المتوسط'},
+    {icon:'⚡', color:'#10b981', value:tot.all? fmtPct(within(delays.all,60)/tot.all*100):'—', label:'اتكلموا خلال ساعة من نزولهم'},
+    {icon:'🕓', color:'#f59e0b', value:tot.all? fmtPct(within(delays.all,1440)/tot.all*100):'—', label:'اتكلموا خلال 24 ساعة'},
+    {icon:'⏳', color:'#ef4444', value:tot.all? fmtPct((tot.all-contacted)/tot.all*100)+` (${fmtNum(tot.all-contacted)})`:'—', label:'لسه ما اتكلمش'},
+  ];
+  kpiEl.innerHTML = kpis.map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.color}33;">${k.icon}</div><div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div></div></div>`).join('');
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const cell = (n,d)=> `<td>${fmtNum(n)} <span style="color:var(--text-dim); font-size:11px;">(${pct(n,d)})</span></td>`;
+  const body = BUCKETS.map((b,i)=>`<tr${b.none?' style="color:var(--red);"':''}><td>${b.label}</td>${cell(cols.all[i],tot.all)}${cell(cols.inS[i],tot.inS)}${cell(cols.outS[i],tot.outS)}</tr>`).join('');
+  const stat = (label, fn)=>`<tr style="border-top:1px solid var(--border);"><td><b>${label}</b></td><td><b>${fmtDuration(fn(delays.all))}</b></td><td><b>${fmtDuration(fn(delays.inS))}</b></td><td><b>${fmtDuration(fn(delays.outS))}</b></td></tr>`;
+  el.innerHTML = `<thead><tr><th>أول تواصل بعد</th><th>كل الليدز</th><th>نزلوا جوا الشيفت (10ص–10م)</th><th>نزلوا بره الشيفت</th></tr></thead>
+    <tbody>${tot.all ? body
+      + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(tot.all)}</b></td><td><b>${fmtNum(tot.inS)}</b></td><td><b>${fmtNum(tot.outS)}</b></td></tr>`
+      + stat('الوسيط (للي اتكلموا)', median) + stat('المتوسط (للي اتكلموا)', avg)
+      : emptyRow(4,'لا توجد بيانات')}</tbody>`;
+}
+
 function renderLeadInsights(channel){
   channel = channel || 'leads';
   const anchorId = channel==='received' ? 'received-answer-by-source' : 'leads-insight-kpis';
@@ -3350,9 +3492,10 @@ function renderLeadInsights(channel){
     const groups = new Map();
     leads.forEach(c=>{
       const k = keyFn(c) || 'غير محدد';
-      if(!groups.has(k)) groups.set(k, {total:0, answered:0, noAction:0, noAnswer:0, paid:0, paidAnswered:0});
+      if(!groups.has(k)) groups.set(k, {total:0, answered:0, noAction:0, noAnswer:0, paid:0, paidAnswered:0, revenue:0});
       const g = groups.get(k);
       g.total++;
+      g.revenue += customerCoreRevenue(c);
       if(customerHasCorePayment(c)) g.paid++;
       if(leadResultIs(c,'Answer')){ g.answered++; if(customerHasCorePayment(c)) g.paidAnswered++; }
       if(leadResultIs(c,'No Action Yet')) g.noAction++;
@@ -3360,21 +3503,25 @@ function renderLeadInsights(channel){
     });
     const entries = Array.from(groups.entries()).sort((a,b)=>b[1].total-a[1].total);
     if(channel==='received'){
-      const rows = entries.map(([k,g])=>`<tr class="drill-row" onclick='${drillFn}(${attrSafe(fieldName)}, ${attrSafe(k)}, ${attrSafe(labelName+': '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td style="font-weight:700;">${fmtPct(g.total? g.paid/g.total*100:0)}</td><td>${confidenceBadge(g.total)}</td></tr>`).join('');
+      const rows = entries.map(([k,g])=>`<tr class="drill-row" onclick='${drillFn}(${attrSafe(fieldName)}, ${attrSafe(k)}, ${attrSafe(labelName+': '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td style="font-weight:700;">${fmtPct(g.total? g.paid/g.total*100:0)}</td><td><b>${fmtMoney(g.revenue)}</b></td><td>${confidenceBadge(g.total)}</td></tr>`).join('');
+      const tt = entries.reduce((a,[,g])=>({total:a.total+g.total, paid:a.paid+g.paid, revenue:a.revenue+g.revenue}), {total:0,paid:0,revenue:0});
+      const totRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(tt.total)}</b></td><td><b>${fmtPct(tt.total? tt.paid/tt.total*100:0)}</b></td><td><b>${fmtMoney(tt.revenue)}</b></td><td></td></tr>`;
       document.getElementById(tableId).innerHTML = `
-        <thead><tr><th>${labelName}</th><th>عدد المكالمات</th><th>نسبة التحويل</th><th>ثقة العينة</th></tr></thead>
-        <tbody>${rows || emptyRow(4,'لا توجد بيانات')}</tbody>`;
+        <thead><tr><th>${labelName}</th><th>عدد المكالمات</th><th>نسبة التحويل</th><th>الفلوس</th><th>ثقة العينة</th></tr></thead>
+        <tbody>${rows ? rows+totRow : emptyRow(5,'لا توجد بيانات')}</tbody>`;
       return;
     }
     const rows = entries.map(([k,g])=>{
       const rateOfTotal = g.total ? g.answered/g.total*100 : 0;
       const noAnswerRate = g.total ? g.noAnswer/g.total*100 : 0;
       const convOfAnswered = g.answered ? g.paidAnswered/g.answered*100 : 0;
-      return `<tr class="drill-row" onclick='${drillFn}(${attrSafe(fieldName)}, ${attrSafe(k)}, ${attrSafe(labelName+': '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td>${fmtNum(g.answered)}</td><td>${fmtPct(rateOfTotal)}</td><td style="color:#ef4444;">${fmtPct(noAnswerRate)} <span style="color:var(--text-dim); font-size:11px;">(${fmtNum(g.noAnswer)})</span></td><td style="font-weight:700;">${fmtPct(convOfAnswered)}</td><td>${confidenceBadge(g.total)}</td></tr>`;
+      return `<tr class="drill-row" onclick='${drillFn}(${attrSafe(fieldName)}, ${attrSafe(k)}, ${attrSafe(labelName+': '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td>${fmtNum(g.answered)}</td><td>${fmtPct(rateOfTotal)}</td><td style="color:#ef4444;">${fmtPct(noAnswerRate)} <span style="color:var(--text-dim); font-size:11px;">(${fmtNum(g.noAnswer)})</span></td><td style="font-weight:700;">${fmtPct(convOfAnswered)}</td><td><b>${fmtMoney(g.revenue)}</b></td><td>${confidenceBadge(g.total)}</td></tr>`;
     }).join('');
+    const tt = entries.reduce((a,[,g])=>({total:a.total+g.total, answered:a.answered+g.answered, noAnswer:a.noAnswer+g.noAnswer, paidAnswered:a.paidAnswered+g.paidAnswered, revenue:a.revenue+g.revenue}), {total:0,answered:0,noAnswer:0,paidAnswered:0,revenue:0});
+    const totRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(tt.total)}</b></td><td><b>${fmtNum(tt.answered)}</b></td><td><b>${fmtPct(tt.total? tt.answered/tt.total*100:0)}</b></td><td><b>${fmtPct(tt.total? tt.noAnswer/tt.total*100:0)}</b> <span style="color:var(--text-dim); font-size:11px;">(${fmtNum(tt.noAnswer)})</span></td><td><b>${fmtPct(tt.answered? tt.paidAnswered/tt.answered*100:0)}</b></td><td><b>${fmtMoney(tt.revenue)}</b></td><td></td></tr>`;
     document.getElementById(tableId).innerHTML = `
-      <thead><tr><th>${labelName}</th><th>إجمالي الليدز</th><th>تم الرد</th><th>% من الإجمالي</th><th>No Answer % من الإجمالي</th><th>نسبة التحويل من اللي ردوا</th><th>ثقة العينة</th></tr></thead>
-      <tbody>${rows || emptyRow(7,'لا توجد بيانات')}</tbody>`;
+      <thead><tr><th>${labelName}</th><th>إجمالي الليدز</th><th>تم الرد</th><th>% من الإجمالي</th><th>No Answer % من الإجمالي</th><th>نسبة التحويل من اللي ردوا</th><th>الفلوس</th><th>ثقة العينة</th></tr></thead>
+      <tbody>${rows ? rows+totRow : emptyRow(8,'لا توجد بيانات')}</tbody>`;
   }
   buildAnswerTable(channel==='received' ? 'received-answer-by-source' : 'leads-answer-by-source', c=>c.source, 'المصدر', 'source');
   buildAnswerTable(channel==='received' ? 'received-answer-by-branch' : 'leads-answer-by-branch', c=>c.branch, 'الفرع', 'branch');
@@ -3633,31 +3780,13 @@ function renderPeriodComparison(channel){
     if(to && k > to) return false;
     return true;
   }
-  const payIndex = new Map();
-  (window.DATA_FULL.payments||[]).filter(p=>p.countsAsEmployeeRevenue && p.phone && p.amount>0).forEach(p=>{
-    window.DATA_FULL.resolveAliases(p.phone).forEach(a=>{
-      if(!payIndex.has(a)) payIndex.set(a, new Set());
-      payIndex.get(a).add(p);
-    });
-  });
   function stats(from, to){
     const list = leads.filter(c=>inPeriod(c, from, to));
     const total = list.length;
     const noAction = list.filter(c=>leadResultIs(c,'No Action Yet')).length;
     const answered = list.filter(c=>leadResultIs(c,'Answer')).length;
     const reg = list.filter(c=>customerHasCorePayment(c)).length;
-    // Money = payments of the leads who entered in this period (same cohort logic as the daily table,
-    // so the numbers tie together). Offers = full price of the deals bought by that same cohort.
-    const cohort = new Set();
-    list.forEach(c=>{
-      if(!customerHasCorePayment(c)) return;
-      callPhones(c).forEach(ph=> window.DATA_FULL.resolveAliases(ph).forEach(a=>{
-        const set = payIndex.get(a); if(set) set.forEach(x=>cohort.add(x));
-      }));
-    });
-    let money = 0; cohort.forEach(x=>{ money += x.amount; });
-    const offersTotal = ((window.DATA_FULL||{}).debtBlocks||[]).filter(b=> cohort.has(b.ref)).reduce((t,b)=>t+b.fullPrice, 0);
-    return { total, answered, noAction, reg, money, offersTotal,
+    return { total, answered, noAction, reg,
       answerRate: total? answered/total*100 : 0,
       noActionRate: total? noAction/total*100 : 0,
       convRate: total? reg/total*100 : 0 };
@@ -3667,14 +3796,32 @@ function renderPeriodComparison(channel){
     el.innerHTML = `<tbody>${emptyRow(4,'اختار فترتين فوق للمقارنة بينهم')}</tbody>`;
     return;
   }
-  const a = stats(aFrom, aTo), b = stats(bFrom, bTo);
+  // Money for this channel, by PAYMENT / PURCHASE date inside the period (same
+  // rule the Comparisons page uses: each payment belongs to the channel of the
+  // customer's last contact). Respects the page's top filters like the rest of
+  // this table.
+  const chName = channel==='received' ? 'Received' : 'Leads';
+  const payPool = new Set(window.DATA.payments);
+  function money(from, to){
+    const inR = d=>{ const k = dayKey(d); return !!k && (!from || k>=from) && (!to || k<=to); };
+    const collected = window.DATA.payments
+      .filter(p=> p.date && inR(p.date) && p.attributedChannel===chName)
+      .reduce((s,p)=>s+p.amount, 0);
+    // Offers = full deal value ("per X" in Payment Type), one block per real purchase,
+    // booked on the date of the first payment of that offer.
+    const blocks = (window.DATA_FULL.debtBlocks||[])
+      .filter(bl=> bl.ref && bl.ref.date && inR(bl.ref.date) && bl.ref.attributedChannel===chName && payPool.has(bl.ref));
+    return { collected, offers: blocks.reduce((s,bl)=>s+bl.fullPrice, 0) };
+  }
+  const a = Object.assign(stats(aFrom, aTo), money(aFrom, aTo));
+  const b = Object.assign(stats(bFrom, bTo), money(bFrom, bTo));
   const rows = [
     {label:'عدد الليدز', av: fmtNum(a.total), bv: fmtNum(b.total), delta: b.total-a.total},
     {label:'نسبة الرد', av: fmtPct(a.answerRate), bv: fmtPct(b.answerRate), delta: b.answerRate-a.answerRate, pct:true},
     {label:'نسبة No Action', av: fmtPct(a.noActionRate), bv: fmtPct(b.noActionRate), delta: b.noActionRate-a.noActionRate, pct:true},
     {label:'نسبة التحويل', av: fmtPct(a.convRate), bv: fmtPct(b.convRate), delta: b.convRate-a.convRate, pct:true},
-    {label:'💰 الفلوس المحصّلة', av: fmtMoney(a.money), bv: fmtMoney(b.money), delta: b.money-a.money, money:true, base:a.money},
-    {label:'🧾 إجمالي العروض', av: fmtMoney(a.offersTotal), bv: fmtMoney(b.offersTotal), delta: b.offersTotal-a.offersTotal, money:true, base:a.offersTotal},
+    {label:'الفلوس اللي اتحصلت <div style="font-size:10.5px; color:var(--text-dim); font-weight:400;">كل الدفعات اللي اتدفعت في الفترة دي (بتاريخ الدفع)</div>', av: fmtMoney(a.collected), bv: fmtMoney(b.collected), delta: b.collected-a.collected, money:true},
+    {label:'إجمالي العروض <div style="font-size:10.5px; color:var(--text-dim); font-weight:400;">قيمة العروض الكاملة اللي اتباعت في الفترة دي (بتاريخ أول دفعة)</div>', av: fmtMoney(a.offers), bv: fmtMoney(b.offers), delta: b.offers-a.offers, money:true},
   ];
   el.innerHTML = `
     <thead><tr><th>المؤشر</th><th style="color:#7c5cff;">Period A</th><th style="color:#ec4899;">Period B</th><th>الفرق (B - A)</th></tr></thead>
@@ -3682,9 +3829,7 @@ function renderPeriodComparison(channel){
       const good = r.delta>0;
       const color = r.delta===0 ? 'var(--text-dim)' : (good ? 'var(--green)' : 'var(--red)');
       const arrow = r.delta===0 ? '—' : (good ? '▲' : '▼');
-      const deltaText = r.pct ? `${Math.abs(r.delta).toFixed(1)} نقطة`
-        : r.money ? fmtMoney(Math.abs(r.delta)) + (r.base ? ` (${Math.abs(r.delta/r.base*100).toFixed(1)}%)` : '')
-        : fmtNum(Math.abs(r.delta));
+      const deltaText = r.pct ? `${Math.abs(r.delta).toFixed(1)} نقطة` : (r.money ? fmtMoney(Math.abs(r.delta)) : fmtNum(Math.abs(r.delta)));
       return `<tr><td>${r.label}</td><td>${r.av}</td><td>${r.bv}</td><td style="color:${color}; font-weight:700;">${arrow} ${deltaText}</td></tr>`;
     }).join('')}</tbody>`;
 }
@@ -5187,6 +5332,155 @@ function exportMktAdsReport(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Ads report');
   XLSX.writeFile(wb, `marketing_ads_${S.from}_${S.to}.xlsx`);
+}
+
+
+/* =========================================================
+   TOTAL PAGE — Leads + Received merged, every customer counted ONCE
+   - Unit = one unique customer (phones linked through aliases), whichever
+     channel(s) he came from. Date / source / branch / course = his FIRST
+     contact; employee = who handled him LAST.
+   - Paid = has a new-sale (New Comer) payment; Money = sum of those payments.
+   - Follows the top filters (month / language / employee / category).
+   - No Answer-rate / No-Action here: those exist for Leads only.
+========================================================= */
+function totalCustomers(){
+  const D = window.DATA, F = window.DATA_FULL;
+  if(window.__totCache && window.__totCache.D===D) return window.__totCache.list;
+  const clusters = new Map(); let anon = 0;
+  const add = (c, ch)=>{
+    if(!c.datetime) return;
+    const ids = new Set();
+    callPhones(c).forEach(ph=> F.resolveAliases(ph).forEach(a=>ids.add(a)));
+    const cid = ids.size ? Array.from(ids).sort()[0] : ('anon-'+(anon++));
+    let g = clusters.get(cid);
+    if(!g){ g = {first:c, last:c, channels:new Set()}; clusters.set(cid, g); }
+    else{ if(c.datetime < g.first.datetime) g.first = c; if(c.datetime >= g.last.datetime) g.last = c; }
+    g.channels.add(ch);
+  };
+  D.received.forEach(c=>add(c,'Received'));
+  D.leads.forEach(c=>add(c,'Leads'));
+  const list = [];
+  clusters.forEach(g=>{
+    const revenue = customerCoreRevenue(g.first);
+    list.push({
+      date: g.first.datetime,
+      source: g.first.source || 'غير معروف',
+      branch: g.first.branch || 'غير محدد',
+      lang: classifyCourse(g.first.course) || 'غير محدد',
+      track: g.first.track || 'غير محدد',
+      agent: g.last.agent || 'غير محدد',
+      channels: g.channels,
+      paid: revenue>0, revenue
+    });
+  });
+  window.__totCache = {D, list};
+  return list;
+}
+
+function totalTemplate(){
+  const xl = (id, name)=>`<button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('${id}','${name}')">⬇️ Excel</button>`;
+  const panel = (title, id, name, extra)=>`<div class="panel">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ${title}</span>${xl(id,name)}</div>
+      ${extra||''}<div style="overflow:auto; max-height:420px;"><table id="${id}"></table></div></div>`;
+  return `
+    ${pageHeader('الإجمالي (Leads + Received)', 'كل عميل بيتحسب مرة واحدة حتى لو جه من القناتين')}
+    <div class="panel">
+      <div class="badge-note" style="line-height:1.9;">
+        <b>العميل</b> = رقم واحد من غير تكرار (حتى لو اتكلم من Leads و Received). التاريخ والمصدر والفرع والكورس = من <b>أول تواصل</b> ليه، والموظف = آخر واحد اتعامل معاه. &nbsp;•&nbsp;
+        <b>دفع</b> = عنده دفعة عميل جديد (New Comer)، و<b>الفلوس</b> = مجموع دفعاته دي. &nbsp;•&nbsp;
+        الصفحة بتتأثر بفلاتر أول الصفحة (الشهر / اللغة / الموظف). &nbsp;•&nbsp;
+        نسبة الرد والـ No Action مش موجودين هنا لأنهم موجودين في الليدز بس.
+      </div>
+    </div>
+    <div class="kpi-grid" id="tot-kpis"></div>
+    ${panel('🔀 حسب القناة', 'tot-channel-table', 'total_by_channel')}
+    <div class="panel">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📈 التريند اليومي</span>${xl('tot-trend-table','total_daily_trend')}</div>
+      <div class="chart-wrap lg"><canvas id="tot-trend-chart"></canvas></div>
+      <div style="overflow:auto; max-height:380px; margin-top:12px;"><table id="tot-trend-table"></table></div>
+    </div>
+    <div class="grid-2">
+      ${panel('🧲 حسب المصدر', 'tot-source-table', 'total_by_source')}
+      ${panel('🏢 حسب الفرع', 'tot-branch-table', 'total_by_branch')}
+    </div>
+    <div class="grid-2">
+      ${panel('🌐 حسب اللغة', 'tot-lang-table', 'total_by_language')}
+      ${panel('🛤️ حسب التراك', 'tot-track-table', 'total_by_track')}
+    </div>
+    <div class="grid-2">
+      ${panel('📅 حسب يوم الأسبوع', 'tot-weekday-table', 'total_by_weekday')}
+      ${panel('🕐 حسب ساعة النزول', 'tot-hour-table', 'total_by_hour')}
+    </div>
+    ${panel('🧑‍💼 حسب الموظف (آخر واحد اتعامل مع العميل)', 'tot-agent-table', 'total_by_agent')}
+  `;
+}
+
+function totGroupTable(tableId, label, list, keyFn, opts){
+  opts = opts || {};
+  const el = document.getElementById(tableId);
+  if(!el) return;
+  const groups = new Map();
+  list.forEach(c=>{
+    const k = keyFn(c);
+    if(!groups.has(k)) groups.set(k, {n:0, paid:0, rev:0});
+    const g = groups.get(k); g.n++; if(c.paid) g.paid++; g.rev += c.revenue;
+  });
+  let entries = Array.from(groups.entries());
+  entries = opts.order ? opts.order(entries) : entries.sort((a,b)=>b[1].n-a[1].n);
+  const T = entries.reduce((a,[,g])=>({n:a.n+g.n, paid:a.paid+g.paid, rev:a.rev+g.rev}), {n:0,paid:0,rev:0});
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const row = ([k,g])=>`<tr><td>${esc(opts.labelFn ? opts.labelFn(k) : String(k))}</td><td>${fmtNum(g.n)}</td><td>${pct(g.n,T.n)}</td><td>${fmtNum(g.paid)}</td><td style="font-weight:700;">${pct(g.paid,g.n)}</td><td><b>${fmtMoney(g.rev)}</b></td><td>${pct(g.rev,T.rev)}</td></tr>`;
+  const totalRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(T.n)}</b></td><td><b>${T.n?'100.0%':'—'}</b></td><td><b>${fmtNum(T.paid)}</b></td><td><b>${pct(T.paid,T.n)}</b></td><td><b>${fmtMoney(T.rev)}</b></td><td><b>${T.rev?'100.0%':'—'}</b></td></tr>`;
+  el.innerHTML = `<thead><tr><th>${label}</th><th>عملاء</th><th>% من العملاء</th><th>دفعوا</th><th>نسبة التحويل</th><th>الفلوس</th><th>% من الفلوس</th></tr></thead>
+    <tbody>${entries.length ? entries.map(row).join('')+totalRow : emptyRow(7,'لا توجد بيانات')}</tbody>`;
+  return {entries, T};
+}
+
+function renderTotal(){
+  if(!document.getElementById('tot-kpis')) return;
+  const list = totalCustomers();
+  const n = list.length, paid = list.filter(c=>c.paid).length;
+  const rev = list.reduce((x,c)=>x+c.revenue,0);
+  const both = list.filter(c=>c.channels.size>1).length;
+  const kpis = [
+    {icon:'👥', color:'#7c5cff', value:fmtNum(n), label:'عملاء (من غير تكرار)'},
+    {icon:'✅', color:'#10b981', value:fmtNum(paid), label:'دفعوا'},
+    {icon:'📈', color:'#3b82f6', value:n? fmtPct(paid/n*100):'—', label:'نسبة التحويل'},
+    {icon:'💰', color:'#f59e0b', value:fmtMoney(rev), label:'الفلوس (دفعات العميل الجديد)'},
+    {icon:'🧾', color:'#ec4899', value:paid? fmtMoney(Math.round(rev/paid)):'—', label:'متوسط الفلوس للعميل اللي دفع'},
+    {icon:'🔀', color:'#14b8a6', value:fmtNum(both), label:'عملاء ظهروا في القناتين'},
+  ];
+  document.getElementById('tot-kpis').innerHTML = kpis.map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.color}33;">${k.icon}</div><div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div></div></div>`).join('');
+
+  const chKey = c=> c.channels.size>1 ? 'both' : (c.channels.has('Leads') ? 'leads' : 'received');
+  const chLabel = {leads:'Leads بس', received:'Received بس', both:'الاتنين (ظهروا في القناتين)'};
+  totGroupTable('tot-channel-table','القناة', list, chKey, {labelFn:k=>chLabel[k], order:e=>['leads','received','both'].map(k=>e.find(x=>x[0]===k)).filter(Boolean)});
+  totGroupTable('tot-source-table','المصدر', list, c=>c.source);
+  totGroupTable('tot-branch-table','الفرع', list, c=>c.branch);
+  totGroupTable('tot-lang-table','اللغة', list, c=>c.lang);
+  totGroupTable('tot-track-table','التراك', list, c=>c.track);
+  totGroupTable('tot-agent-table','الموظف', list, c=>c.agent);
+  const dayNames = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+  const wkOrder = [6,0,1,2,3,4,5]; // Saturday first
+  totGroupTable('tot-weekday-table','اليوم', list, c=>c.date.getDay(), {labelFn:k=>dayNames[k], order:e=>wkOrder.map(d=>e.find(x=>x[0]===d)).filter(Boolean)});
+  totGroupTable('tot-hour-table','ساعة النزول', list, c=>c.date.getHours(), {
+    labelFn:k=>`${String(k).padStart(2,'0')}:00 – ${String(k).padStart(2,'0')}:59${inShiftHour(k)?'  (جوا الشيفت)':''}`,
+    order:e=>e.sort((a,b)=>a[0]-b[0])});
+
+  // daily trend: chart + table
+  const res = totGroupTable('tot-trend-table','اليوم', list, c=>dayKey(c.date), {
+    labelFn:k=>dayFilterLabel(k), order:e=>e.sort((a,b)=>a[0]<b[0]?-1:1)});
+  if(res){
+    makeChart('tot-trend-chart', {
+      type:'bar',
+      data:{ labels: res.entries.map(([k])=>dayFilterLabel(k)), datasets:[
+        {type:'bar', label:'عملاء', data:res.entries.map(([,g])=>g.n), backgroundColor:'#7c5cff55', borderColor:'#7c5cff', borderWidth:1, borderRadius:4, yAxisID:'y'},
+        {type:'line', label:'دفعوا', data:res.entries.map(([,g])=>g.paid), borderColor:'#10b981', backgroundColor:'#10b98133', tension:.3, yAxisID:'y1'},
+      ]},
+      options:{ interaction:{mode:'index', intersect:false}, scales:{ y:{beginAtZero:true, ticks:{precision:0}}, y1:{beginAtZero:true, position:'right', grid:{display:false}, ticks:{precision:0}} } }
+    });
+  }
 }
 
 function renderMarketing(){
