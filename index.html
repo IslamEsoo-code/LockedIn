@@ -1489,6 +1489,19 @@ function customerCoreRevenue(call){
   let sum = 0; seen.forEach(pp=>{ sum += pp.amount; });
   return sum;
 }
+/* New-sale payments matched to ONE lead through phone aliases (with the matched sheet row details). */
+function customerCorePaymentsFor(call){
+  customerCoreRevenue(call); // makes sure the index exists
+  const idx = window.__coreRevIdx.idx, seen = new Set();
+  callPhones(call).forEach(ph=> window.DATA_FULL.resolveAliases(ph).forEach(a=>{ const st=idx.get(a); if(st) st.forEach(pp=>seen.add(pp)); }));
+  return Array.from(seen).sort((a,b)=>(a.date||0)-(b.date||0));
+}
+/* Payments that happened ON/AFTER the day the lead arrived (a payment before the lead = old customer, not a booking from this lead). */
+function customerPaymentsAfterLead(call){
+  if(!call.datetime) return [];
+  const d0 = new Date(call.datetime.getFullYear(), call.datetime.getMonth(), call.datetime.getDate());
+  return customerCorePaymentsFor(call).filter(p=> p.date && p.date >= d0);
+}
 /* Logged calls (History column of the leads sheet) of ONE customer, oldest first. */
 function leadActionsFor(call){
   const F = window.DATA_FULL;
@@ -2277,13 +2290,13 @@ function callsTemplate(){
 
     <div class="panel" id="panel-leads-shift">
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ⏰ نسبة الرد جوا الشيفت وبره الشيفت (حسب وقت وصول الليد)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-shift-table','leads_answer_rate_by_shift')">⬇️ Excel</button></div>
-      <div class="badge-note">الشيفت = من 10 الصبح لـ 10 بليل. الليد بيتحسب <b>جوا الشيفت</b> أو <b>بره الشيفت</b> حسب الساعة اللي نزل فيها (DateTime). نسبة الرد = Answer ÷ إجمالي الليدز بتوع الفترة دي. &nbsp;•&nbsp; <b>عملاء حجزوا</b> = ليدز النزول ده اللي دفعوا دفعة عميل جديد (New Comer)، <b>نسبة التحويل</b> = حجزوا ÷ إجمالي الليدز، و<b>الفلوس</b> = مجموع دفعاتهم دي.</div>
+      <div class="badge-note">الشيفت = من 10 الصبح لـ 10 بليل. الليد بيتحسب <b>جوا الشيفت</b> أو <b>بره الشيفت</b> حسب الساعة اللي نزل فيها (DateTime). نسبة الرد = Answer ÷ إجمالي الليدز بتوع الفترة دي. &nbsp;•&nbsp; <b>عملاء حجزوا</b> = ليدز النزول ده اللي دفعوا دفعة عميل جديد (New Comer) <u>بعد نزول الليد</u>، <b>نسبة التحويل</b> = حجزوا ÷ إجمالي الليدز، و<b>الفلوس</b> = مجموع دفعاتهم دي.</div>
       <div style="overflow:auto;"><table id="leads-shift-table"></table></div>
     </div>
 
     <div class="panel" id="panel-leads-first-contact">
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ⏱️ أول تواصل بعد نزول الليد بقد إيه؟</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-first-contact-table','leads_first_contact_delay')">⬇️ Excel</button></div>
-      <div class="badge-note">الوقت بين نزول الليد (DateTime) وأول مكالمة اتسجلت له بعد كده في عمود History. المكالمات القديمة اللي قبل نزول الليد مش بتتحسب. "لسه ما اتكلمش" = مفيش أي مكالمة مسجلة بعد نزوله. &nbsp;•&nbsp; <b>عملاء حجزوا</b> = من ليدز الصف ده اللي دفعوا دفعة عميل جديد، و<b>نسبة التحويل</b> = حجزوا ÷ ليدز الصف (قارن الصفوف ببعض عشان تعرف لو التواصل المبكر بيزود الحجز). &nbsp;•&nbsp; 👆 دوس على أي رقم في الجدول عشان تشوف العملاء نفسهم (الاسم، الموبايل، الموظف، وقت أول تواصل، المبلغ) وتصدّرهم Excel.</div>
+      <div class="badge-note">الوقت بين نزول الليد (DateTime) وأول مكالمة اتسجلت له بعد كده في عمود History. المكالمات القديمة اللي قبل نزول الليد مش بتتحسب. "لسه ما اتكلمش" = مفيش أي مكالمة مسجلة بعد نزوله. &nbsp;•&nbsp; <b>عملاء حجزوا</b> = من ليدز الصف ده اللي دفعوا دفعة عميل جديد <u>بعد نزول الليد</u> (دفعة قديمة قبل الليد مش بتتحسب)، و<b>نسبة التحويل</b> = حجزوا ÷ ليدز الصف (قارن الصفوف ببعض عشان تعرف لو التواصل المبكر بيزود الحجز). &nbsp;•&nbsp; 👆 دوس على أي رقم في الجدول عشان تشوف العملاء نفسهم (الاسم، الموبايل، الموظف، وقت أول تواصل، المبلغ) وتصدّرهم Excel.</div>
       <div class="kpi-grid" id="leads-first-contact-kpis" style="margin-bottom:14px;"></div>
       <div style="overflow:auto;"><table id="leads-first-contact-table"></table></div>
     </div>
@@ -3384,7 +3397,7 @@ function renderLeadShift(){
     if(leadResultIs(c,'Answer')) g.answered++;
     else if(leadResultIs(c,'No Answer')) g.noAnswer++;
     else if(leadResultIs(c,'No Action Yet')) g.noAction++;
-    const rev = customerCoreRevenue(c);
+    const rev = customerPaymentsAfterLead(c).reduce((x,p)=>x+p.amount,0);
     if(rev>0) g.booked++;
     g.revenue += rev;
   });
@@ -3414,9 +3427,9 @@ function drillFirstContact(bi, kind){
   const total = rows.reduce((x,r)=>x+r.rev,0);
   document.getElementById('drill-modal-title').textContent = `أول تواصل: ${bName} — ${kindName} (${rows.length})`;
   document.getElementById('drill-modal-table').innerHTML = `
-    <thead><tr><th>الاسم</th><th>الموبايل</th><th>الموظف</th><th>نزل الليد</th><th>أول تواصل بعد</th><th>حجز؟</th><th>المبلغ</th></tr></thead>
-    <tbody>${rows.length ? rows.map(r=>`<tr><td>${esc(r.c.name||'—')}</td><td>${esc(r.c.mobile1||r.c.mobile2||'—')}</td><td>${esc(r.c.agent||'—')}</td><td>${esc(r.c.datetime? r.c.datetime.toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—')}</td><td>${r.min==null?'—':fmtDuration(r.min)}</td><td>${r.paid?'✅':'—'}</td><td>${r.paid?'<b>'+fmtMoney(r.rev)+'</b>':'—'}</td></tr>`).join('')
-      + (total? `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td></td><td></td><td></td><td></td><td></td><td><b>${fmtMoney(total)}</b></td></tr>`:'') : emptyRow(7,'لا يوجد بيانات')}</tbody>`;
+    <thead><tr><th>الاسم</th><th>الموبايل</th><th>الموظف</th><th>نزل الليد</th><th>أول تواصل بعد</th><th>حجز؟</th><th>المبلغ</th><th>مدفوعات متطابقة في شيت البايمنت (التاريخ · الاسم · الرقم · المبلغ)</th></tr></thead>
+    <tbody>${rows.length ? rows.map(r=>`<tr><td>${esc(r.c.name||'—')}</td><td>${esc(r.c.mobile1||r.c.mobile2||'—')}</td><td>${esc(r.c.agent||'—')}</td><td>${esc(r.c.datetime? r.c.datetime.toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—')}</td><td>${r.min==null?'—':fmtDuration(r.min)}</td><td>${r.paid?'✅':'—'}</td><td>${r.paid?'<b>'+fmtMoney(r.rev)+'</b>':'—'}</td><td style="font-size:11px; text-align:right;">${r.pays.length ? r.pays.map(p=>`<div style="${r.after.includes(p)?'':'color:var(--text-dim);'}">${r.after.includes(p)?'✅':'⏪ قبل الليد'} ${esc(p.date? dayKey(p.date):'بدون تاريخ')} · ${esc(p.studentName||'—')} · ${esc(p.phone||'—')} · ${fmtMoney(p.amount)}</div>`).join('') : '—'}</td></tr>`).join('')
+      + (total? `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td></td><td></td><td></td><td></td><td></td><td><b>${fmtMoney(total)}</b></td><td></td></tr>`:'') : emptyRow(8,'لا يوجد بيانات')}</tbody>`;
   document.getElementById('drill-modal-overlay').style.display = 'flex';
 }
 function renderLeadFirstContact(){
@@ -3452,9 +3465,10 @@ function renderLeadFirstContact(){
       delays.all.push(min); delays[which].push(min);
     }
     cols.all[bi]++; cols[which][bi]++;
-    const paidNow = customerHasCorePayment(c);
+    const pAfter = customerPaymentsAfterLead(c);
+    const paidNow = pAfter.length>0;
     if(paidNow) booked[bi]++;
-    const entry = {c, min: first ? (first.datetime - c.datetime)/60000 : null, first: first||null, paid: paidNow, rev: paidNow ? customerCoreRevenue(c) : 0};
+    const entry = {c, min: first ? (first.datetime - c.datetime)/60000 : null, first: first||null, paid: paidNow, rev: pAfter.reduce((x,p)=>x+p.amount,0), pays: customerCorePaymentsFor(c), after: pAfter};
     fcLists[bi].all.push(entry); fcLists[bi][which].push(entry); if(paidNow) fcLists[bi].booked.push(entry);
   });
   const sum = a=>a.reduce((x,y)=>x+y,0);
