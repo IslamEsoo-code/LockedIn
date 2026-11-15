@@ -2283,7 +2283,7 @@ function callsTemplate(){
 
     <div class="panel" id="panel-leads-first-contact">
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ⏱️ أول تواصل بعد نزول الليد بقد إيه؟</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-first-contact-table','leads_first_contact_delay')">⬇️ Excel</button></div>
-      <div class="badge-note">الوقت بين نزول الليد (DateTime) وأول مكالمة اتسجلت له بعد كده في عمود History. المكالمات القديمة اللي قبل نزول الليد مش بتتحسب. "لسه ما اتكلمش" = مفيش أي مكالمة مسجلة بعد نزوله.</div>
+      <div class="badge-note">الوقت بين نزول الليد (DateTime) وأول مكالمة اتسجلت له بعد كده في عمود History. المكالمات القديمة اللي قبل نزول الليد مش بتتحسب. "لسه ما اتكلمش" = مفيش أي مكالمة مسجلة بعد نزوله. &nbsp;•&nbsp; <b>عملاء حجزوا</b> = من ليدز الصف ده اللي دفعوا دفعة عميل جديد، و<b>نسبة التحويل</b> = حجزوا ÷ ليدز الصف (قارن الصفوف ببعض عشان تعرف لو التواصل المبكر بيزود الحجز).</div>
       <div class="kpi-grid" id="leads-first-contact-kpis" style="margin-bottom:14px;"></div>
       <div style="overflow:auto;"><table id="leads-first-contact-table"></table></div>
     </div>
@@ -3410,7 +3410,7 @@ function renderLeadFirstContact(){
   const hasHist = (window.DATA_FULL.leadHistoryActions||[]).length>0;
   if(!hasHist){
     kpiEl.innerHTML = '';
-    el.innerHTML = `<tbody>${emptyRow(7,'مفيش عمود History في شيت الليدز — ماقدرتش أحسب وقت أول تواصل')}</tbody>`;
+    el.innerHTML = `<tbody>${emptyRow(6,'مفيش عمود History في شيت الليدز — ماقدرتش أحسب وقت أول تواصل')}</tbody>`;
     return;
   }
   const leads = channelList('leads').filter(c=>c.datetime);
@@ -3422,6 +3422,7 @@ function renderLeadFirstContact(){
   const mk = ()=>BUCKETS.map(()=>0);
   const cols = {all:mk(), inS:mk(), outS:mk()};
   const delays = {all:[], inS:[], outS:[]};
+  const booked = BUCKETS.map(()=>0); // customers who booked (paid) per time bucket
   leads.forEach(c=>{
     const first = leadActionsFor(c).find(a=>a.datetime >= c.datetime);
     const which = inShiftHour(c.datetime.getHours()) ? 'inS' : 'outS';
@@ -3433,6 +3434,7 @@ function renderLeadFirstContact(){
       delays.all.push(min); delays[which].push(min);
     }
     cols.all[bi]++; cols[which][bi]++;
+    if(customerHasCorePayment(c)) booked[bi]++;
   });
   const sum = a=>a.reduce((x,y)=>x+y,0);
   const tot = {all:sum(cols.all), inS:sum(cols.inS), outS:sum(cols.outS)};
@@ -3450,13 +3452,13 @@ function renderLeadFirstContact(){
   kpiEl.innerHTML = kpis.map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.color}33;">${k.icon}</div><div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div></div></div>`).join('');
   const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
   const cell = (n,d)=> `<td>${fmtNum(n)} <span style="color:var(--text-dim); font-size:11px;">(${pct(n,d)})</span></td>`;
-  const body = BUCKETS.map((b,i)=>`<tr${b.none?' style="color:var(--red);"':''}><td>${b.label}</td>${cell(cols.all[i],tot.all)}${cell(cols.inS[i],tot.inS)}${cell(cols.outS[i],tot.outS)}</tr>`).join('');
-  const stat = (label, fn)=>`<tr style="border-top:1px solid var(--border);"><td><b>${label}</b></td><td><b>${fmtDuration(fn(delays.all))}</b></td><td><b>${fmtDuration(fn(delays.inS))}</b></td><td><b>${fmtDuration(fn(delays.outS))}</b></td></tr>`;
-  el.innerHTML = `<thead><tr><th>أول تواصل بعد</th><th>كل الليدز</th><th>نزلوا جوا الشيفت (10ص–10م)</th><th>نزلوا بره الشيفت</th></tr></thead>
+  const body = BUCKETS.map((b,i)=>`<tr${b.none?' style="color:var(--red);"':''}><td>${b.label}</td>${cell(cols.all[i],tot.all)}<td>${fmtNum(booked[i])}</td><td style="font-weight:800; color:var(--green);">${pct(booked[i],cols.all[i])}</td>${cell(cols.inS[i],tot.inS)}${cell(cols.outS[i],tot.outS)}</tr>`).join('');
+  const stat = (label, fn)=>`<tr style="border-top:1px solid var(--border);"><td><b>${label}</b></td><td><b>${fmtDuration(fn(delays.all))}</b></td><td></td><td></td><td><b>${fmtDuration(fn(delays.inS))}</b></td><td><b>${fmtDuration(fn(delays.outS))}</b></td></tr>`;
+  el.innerHTML = `<thead><tr><th>أول تواصل بعد</th><th>كل الليدز</th><th>عملاء حجزوا</th><th>نسبة التحويل</th><th>نزلوا جوا الشيفت (10ص–10م)</th><th>نزلوا بره الشيفت</th></tr></thead>
     <tbody>${tot.all ? body
-      + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(tot.all)}</b></td><td><b>${fmtNum(tot.inS)}</b></td><td><b>${fmtNum(tot.outS)}</b></td></tr>`
+      + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(tot.all)}</b></td><td><b>${fmtNum(sum(booked))}</b></td><td><b>${pct(sum(booked),tot.all)}</b></td><td><b>${fmtNum(tot.inS)}</b></td><td><b>${fmtNum(tot.outS)}</b></td></tr>`
       + stat('الوسيط (للي اتكلموا)', median) + stat('المتوسط (للي اتكلموا)', avg)
-      : emptyRow(4,'لا توجد بيانات')}</tbody>`;
+      : emptyRow(6,'لا توجد بيانات')}</tbody>`;
 }
 
 function renderLeadInsights(channel){
