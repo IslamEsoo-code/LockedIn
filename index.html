@@ -2283,7 +2283,7 @@ function callsTemplate(){
 
     <div class="panel" id="panel-leads-first-contact">
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ⏱️ أول تواصل بعد نزول الليد بقد إيه؟</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-first-contact-table','leads_first_contact_delay')">⬇️ Excel</button></div>
-      <div class="badge-note">الوقت بين نزول الليد (DateTime) وأول مكالمة اتسجلت له بعد كده في عمود History. المكالمات القديمة اللي قبل نزول الليد مش بتتحسب. "لسه ما اتكلمش" = مفيش أي مكالمة مسجلة بعد نزوله. &nbsp;•&nbsp; <b>عملاء حجزوا</b> = من ليدز الصف ده اللي دفعوا دفعة عميل جديد، و<b>نسبة التحويل</b> = حجزوا ÷ ليدز الصف (قارن الصفوف ببعض عشان تعرف لو التواصل المبكر بيزود الحجز).</div>
+      <div class="badge-note">الوقت بين نزول الليد (DateTime) وأول مكالمة اتسجلت له بعد كده في عمود History. المكالمات القديمة اللي قبل نزول الليد مش بتتحسب. "لسه ما اتكلمش" = مفيش أي مكالمة مسجلة بعد نزوله. &nbsp;•&nbsp; <b>عملاء حجزوا</b> = من ليدز الصف ده اللي دفعوا دفعة عميل جديد، و<b>نسبة التحويل</b> = حجزوا ÷ ليدز الصف (قارن الصفوف ببعض عشان تعرف لو التواصل المبكر بيزود الحجز). &nbsp;•&nbsp; 👆 دوس على أي رقم في الجدول عشان تشوف العملاء نفسهم (الاسم، الموبايل، الموظف، وقت أول تواصل، المبلغ) وتصدّرهم Excel.</div>
       <div class="kpi-grid" id="leads-first-contact-kpis" style="margin-bottom:14px;"></div>
       <div style="overflow:auto;"><table id="leads-first-contact-table"></table></div>
     </div>
@@ -3403,6 +3403,22 @@ function renderLeadShift(){
     <tbody>${all.total ? row('جوا الشيفت (10ص – 10م)', inS) + row('بره الشيفت (10م – 10ص)', outS) + row('الإجمالي', all, true) : emptyRow(11,'لا توجد بيانات')}</tbody>`;
 }
 
+function drillFirstContact(bi, kind){
+  const L = window.__fcLists||[], B = window.__fcBuckets||[];
+  const idx = bi<0 ? L.map((_,i)=>i) : [bi];
+  let rows = [];
+  idx.forEach(i=>{ rows = rows.concat(L[i][kind]||[]); });
+  rows.sort((a,b)=> (b.rev-a.rev) || ((a.min==null?1e12:a.min)-(b.min==null?1e12:b.min)));
+  const kindName = {all:'كل الليدز', booked:'اللي حجزوا', inS:'نزلوا جوا الشيفت', outS:'نزلوا بره الشيفت'}[kind];
+  const bName = bi<0 ? 'الإجمالي' : B[bi].label;
+  const total = rows.reduce((x,r)=>x+r.rev,0);
+  document.getElementById('drill-modal-title').textContent = `أول تواصل: ${bName} — ${kindName} (${rows.length})`;
+  document.getElementById('drill-modal-table').innerHTML = `
+    <thead><tr><th>الاسم</th><th>الموبايل</th><th>الموظف</th><th>نزل الليد</th><th>أول تواصل بعد</th><th>حجز؟</th><th>المبلغ</th></tr></thead>
+    <tbody>${rows.length ? rows.map(r=>`<tr><td>${esc(r.c.name||'—')}</td><td>${esc(r.c.mobile1||r.c.mobile2||'—')}</td><td>${esc(r.c.agent||'—')}</td><td>${esc(r.c.datetime? r.c.datetime.toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—')}</td><td>${r.min==null?'—':fmtDuration(r.min)}</td><td>${r.paid?'✅':'—'}</td><td>${r.paid?'<b>'+fmtMoney(r.rev)+'</b>':'—'}</td></tr>`).join('')
+      + (total? `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td></td><td></td><td></td><td></td><td></td><td><b>${fmtMoney(total)}</b></td></tr>`:'') : emptyRow(7,'لا يوجد بيانات')}</tbody>`;
+  document.getElementById('drill-modal-overlay').style.display = 'flex';
+}
 function renderLeadFirstContact(){
   const el = document.getElementById('leads-first-contact-table');
   if(!el) return;
@@ -3423,6 +3439,8 @@ function renderLeadFirstContact(){
   const cols = {all:mk(), inS:mk(), outS:mk()};
   const delays = {all:[], inS:[], outS:[]};
   const booked = BUCKETS.map(()=>0); // customers who booked (paid) per time bucket
+  const fcLists = BUCKETS.map(()=>({all:[],inS:[],outS:[],booked:[]})); // for click-to-see-customers
+  window.__fcLists = fcLists; window.__fcBuckets = BUCKETS;
   leads.forEach(c=>{
     const first = leadActionsFor(c).find(a=>a.datetime >= c.datetime);
     const which = inShiftHour(c.datetime.getHours()) ? 'inS' : 'outS';
@@ -3434,7 +3452,10 @@ function renderLeadFirstContact(){
       delays.all.push(min); delays[which].push(min);
     }
     cols.all[bi]++; cols[which][bi]++;
-    if(customerHasCorePayment(c)) booked[bi]++;
+    const paidNow = customerHasCorePayment(c);
+    if(paidNow) booked[bi]++;
+    const entry = {c, min: first ? (first.datetime - c.datetime)/60000 : null, first: first||null, paid: paidNow, rev: paidNow ? customerCoreRevenue(c) : 0};
+    fcLists[bi].all.push(entry); fcLists[bi][which].push(entry); if(paidNow) fcLists[bi].booked.push(entry);
   });
   const sum = a=>a.reduce((x,y)=>x+y,0);
   const tot = {all:sum(cols.all), inS:sum(cols.inS), outS:sum(cols.outS)};
@@ -3451,12 +3472,12 @@ function renderLeadFirstContact(){
   ];
   kpiEl.innerHTML = kpis.map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.color}33;">${k.icon}</div><div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div></div></div>`).join('');
   const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
-  const cell = (n,d)=> `<td>${fmtNum(n)} <span style="color:var(--text-dim); font-size:11px;">(${pct(n,d)})</span></td>`;
-  const body = BUCKETS.map((b,i)=>`<tr${b.none?' style="color:var(--red);"':''}><td>${b.label}</td>${cell(cols.all[i],tot.all)}<td>${fmtNum(booked[i])}</td><td style="font-weight:800; color:var(--green);">${pct(booked[i],cols.all[i])}</td>${cell(cols.inS[i],tot.inS)}${cell(cols.outS[i],tot.outS)}</tr>`).join('');
+  const cell = (n,d,bi,kind)=> `<td class="drill-row" style="cursor:pointer;" onclick="drillFirstContact(${bi},'${kind}')">${fmtNum(n)} <span style="color:var(--text-dim); font-size:11px;">(${pct(n,d)})</span></td>`;
+  const body = BUCKETS.map((b,i)=>`<tr${b.none?' style="color:var(--red);"':''}><td>${b.label}</td>${cell(cols.all[i],tot.all,i,'all')}<td class="drill-row" style="cursor:pointer;" onclick="drillFirstContact(${i},'booked')">${fmtNum(booked[i])}</td><td style="font-weight:800; color:var(--green);">${pct(booked[i],cols.all[i])}</td>${cell(cols.inS[i],tot.inS,i,'inS')}${cell(cols.outS[i],tot.outS,i,'outS')}</tr>`).join('');
   const stat = (label, fn)=>`<tr style="border-top:1px solid var(--border);"><td><b>${label}</b></td><td><b>${fmtDuration(fn(delays.all))}</b></td><td></td><td></td><td><b>${fmtDuration(fn(delays.inS))}</b></td><td><b>${fmtDuration(fn(delays.outS))}</b></td></tr>`;
   el.innerHTML = `<thead><tr><th>أول تواصل بعد</th><th>كل الليدز</th><th>عملاء حجزوا</th><th>نسبة التحويل</th><th>نزلوا جوا الشيفت (10ص–10م)</th><th>نزلوا بره الشيفت</th></tr></thead>
     <tbody>${tot.all ? body
-      + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(tot.all)}</b></td><td><b>${fmtNum(sum(booked))}</b></td><td><b>${pct(sum(booked),tot.all)}</b></td><td><b>${fmtNum(tot.inS)}</b></td><td><b>${fmtNum(tot.outS)}</b></td></tr>`
+      + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td class="drill-row" style="cursor:pointer;" onclick="drillFirstContact(-1,'all')"><b>${fmtNum(tot.all)}</b></td><td class="drill-row" style="cursor:pointer;" onclick="drillFirstContact(-1,'booked')"><b>${fmtNum(sum(booked))}</b></td><td><b>${pct(sum(booked),tot.all)}</b></td><td><b>${fmtNum(tot.inS)}</b></td><td><b>${fmtNum(tot.outS)}</b></td></tr>`
       + stat('الوسيط (للي اتكلموا)', median) + stat('المتوسط (للي اتكلموا)', avg)
       : emptyRow(6,'لا توجد بيانات')}</tbody>`;
 }
