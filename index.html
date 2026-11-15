@@ -2277,7 +2277,7 @@ function callsTemplate(){
 
     <div class="panel" id="panel-leads-shift">
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ⏰ نسبة الرد جوا الشيفت وبره الشيفت (حسب وقت وصول الليد)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-shift-table','leads_answer_rate_by_shift')">⬇️ Excel</button></div>
-      <div class="badge-note">الشيفت = من 10 الصبح لـ 10 بليل. الليد بيتحسب <b>جوا الشيفت</b> أو <b>بره الشيفت</b> حسب الساعة اللي نزل فيها (DateTime). نسبة الرد = Answer ÷ إجمالي الليدز بتوع الفترة دي.</div>
+      <div class="badge-note">الشيفت = من 10 الصبح لـ 10 بليل. الليد بيتحسب <b>جوا الشيفت</b> أو <b>بره الشيفت</b> حسب الساعة اللي نزل فيها (DateTime). نسبة الرد = Answer ÷ إجمالي الليدز بتوع الفترة دي. &nbsp;•&nbsp; <b>عملاء حجزوا</b> = ليدز النزول ده اللي دفعوا دفعة عميل جديد (New Comer)، <b>نسبة التحويل</b> = حجزوا ÷ إجمالي الليدز، و<b>الفلوس</b> = مجموع دفعاتهم دي.</div>
       <div style="overflow:auto;"><table id="leads-shift-table"></table></div>
     </div>
 
@@ -3376,7 +3376,7 @@ function renderLeadShift(){
   const el = document.getElementById('leads-shift-table');
   if(!el) return;
   const leads = channelList('leads').filter(c=>c.datetime);
-  const mk = ()=>({total:0, answered:0, noAnswer:0, noAction:0});
+  const mk = ()=>({total:0, answered:0, noAnswer:0, noAction:0, booked:0, revenue:0});
   const inS = mk(), outS = mk();
   leads.forEach(c=>{
     const g = inShiftHour(c.datetime.getHours()) ? inS : outS;
@@ -3384,8 +3384,11 @@ function renderLeadShift(){
     if(leadResultIs(c,'Answer')) g.answered++;
     else if(leadResultIs(c,'No Answer')) g.noAnswer++;
     else if(leadResultIs(c,'No Action Yet')) g.noAction++;
+    const rev = customerCoreRevenue(c);
+    if(rev>0) g.booked++;
+    g.revenue += rev;
   });
-  const all = {total:inS.total+outS.total, answered:inS.answered+outS.answered, noAnswer:inS.noAnswer+outS.noAnswer, noAction:inS.noAction+outS.noAction};
+  const all = {total:inS.total+outS.total, answered:inS.answered+outS.answered, noAnswer:inS.noAnswer+outS.noAnswer, noAction:inS.noAction+outS.noAction, booked:inS.booked+outS.booked, revenue:inS.revenue+outS.revenue};
   const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
   const cnt = (n,d)=> `${fmtNum(n)} <span style="color:var(--text-dim); font-size:11px;">(${pct(n,d)})</span>`;
   const row = (label,g,bold)=>{
@@ -3393,10 +3396,11 @@ function renderLeadShift(){
     const b = t=> bold ? `<b>${t}</b>` : t;
     return `<tr${bold?' style="border-top:2px solid var(--border);"':''}><td>${b(label)}</td><td>${b(fmtNum(g.total))}</td><td>${b(pct(g.total, all.total))}</td>
       <td>${b(fmtNum(g.answered))}</td><td style="font-weight:800; color:var(--green);">${pct(g.answered,g.total)}</td>
-      <td>${cnt(g.noAnswer,g.total)}</td><td>${cnt(g.noAction,g.total)}</td><td>${cnt(other,g.total)}</td></tr>`;
+      <td>${cnt(g.noAnswer,g.total)}</td><td>${cnt(g.noAction,g.total)}</td><td>${cnt(other,g.total)}</td>
+      <td>${b(fmtNum(g.booked))}</td><td style="font-weight:800; color:var(--green);">${pct(g.booked,g.total)}</td><td>${b(fmtMoney(g.revenue))}</td></tr>`;
   };
-  el.innerHTML = `<thead><tr><th>وقت وصول الليد</th><th>إجمالي الليدز</th><th>% من كل الليدز</th><th>تم الرد (Answer)</th><th>نسبة الرد</th><th>No Answer</th><th>No Action Yet</th><th>أخرى (Wrong Number...)</th></tr></thead>
-    <tbody>${all.total ? row('جوا الشيفت (10ص – 10م)', inS) + row('بره الشيفت (10م – 10ص)', outS) + row('الإجمالي', all, true) : emptyRow(8,'لا توجد بيانات')}</tbody>`;
+  el.innerHTML = `<thead><tr><th>وقت وصول الليد</th><th>إجمالي الليدز</th><th>% من كل الليدز</th><th>تم الرد (Answer)</th><th>نسبة الرد</th><th>No Answer</th><th>No Action Yet</th><th>أخرى (Wrong Number...)</th><th>عملاء حجزوا</th><th>نسبة التحويل</th><th>الفلوس</th></tr></thead>
+    <tbody>${all.total ? row('جوا الشيفت (10ص – 10م)', inS) + row('بره الشيفت (10م – 10ص)', outS) + row('الإجمالي', all, true) : emptyRow(11,'لا توجد بيانات')}</tbody>`;
 }
 
 function renderLeadFirstContact(){
