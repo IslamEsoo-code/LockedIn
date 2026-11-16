@@ -1486,20 +1486,21 @@ function coreRevIndex(){
   }
   return window.__coreRevIdx.idx;
 }
-/* The day (00:00) of the customer's FIRST contact ever — any channel, whole history,
+/* The day (00:00) of the customer's FIRST contact (in the given channel when passed, else any channel), whole history,
    regardless of the top filters. Payments before it belong to an existing student,
    not to a customer we won.  null = no dated contact found. */
-function customerFirstDayOfPhones(phones){
+function customerFirstDayOfPhones(phones, channel){
   const F = window.DATA_FULL;
   if(!window.__firstDayCache || window.__firstDayCache.F!==F) window.__firstDayCache = {F, m:new Map()};
   const cache = window.__firstDayCache.m;
   let best = null;
   (phones||[]).forEach(ph=>{
     if(!ph) return;
-    let v = cache.get(ph);
+    const ck = ph+'|'+(channel||'');
+    let v = cache.get(ck);
     if(v===undefined){
       v = null;
-      F.resolveAliases(ph).forEach(a=>{ (F.callIndex.get(a)||[]).forEach(x=>{ if(x.datetime && (!v || x.datetime < v)) v = x.datetime; }); });
+      F.resolveAliases(ph).forEach(a=>{ (F.callIndex.get(a)||[]).forEach(x=>{ if(channel && x.channel!==channel) return; if(x.datetime && (!v || x.datetime < v)) v = x.datetime; }); });
       cache.set(ph, v);
     }
     if(v && (!best || v < best)) best = v;
@@ -1512,19 +1513,19 @@ function corePaymentsOfPhones(phones){
   return Array.from(seen).sort((a,b)=>(a.date||0)-(b.date||0));
 }
 /* New-sale payments of ONE customer that happened on/after his first contact. */
-function corePaymentsAfterFirstOfPhones(phones){
+function corePaymentsAfterFirstOfPhones(phones, channel){
   const all = corePaymentsOfPhones(phones);
-  const d0 = customerFirstDayOfPhones(phones);
+  const d0 = customerFirstDayOfPhones(phones, channel) || (channel ? customerFirstDayOfPhones(phones) : null);
   if(!d0) return all;               // no dated contact -> cannot tell, keep
   return all.filter(p=> p.date && p.date >= d0);
 }
 function customerCoreRevenue(call){
-  return corePaymentsAfterFirstOfPhones(callPhones(call)).reduce((x,p)=>x+p.amount,0);
+  return corePaymentsAfterFirstOfPhones(callPhones(call), call.channel).reduce((x,p)=>x+p.amount,0);
 }
 /* New-sale payments matched to ONE lead through phone aliases (with the matched sheet row details). */
 function customerCorePaymentsFor(call){ return corePaymentsOfPhones(callPhones(call)); }
 /* Payments counted for this customer = on/after his first contact (whole history). */
-function customerPaymentsAfterLead(call){ return corePaymentsAfterFirstOfPhones(callPhones(call)); }
+function customerPaymentsAfterLead(call){ return corePaymentsAfterFirstOfPhones(callPhones(call), call.channel); }
 /* Logged calls (History column of the leads sheet) of ONE customer, oldest first. */
 function leadActionsFor(call){
   const F = window.DATA_FULL;
@@ -1554,7 +1555,7 @@ function fmtDuration(min){
 function customerHasCorePayment(call){
   const F = window.DATA_FULL;
   if(!callPhones(call).some(ph=> F.resolveAliases(ph).some(a=> F.corePaidPhones.has(a)))) return false;
-  return corePaymentsAfterFirstOfPhones(callPhones(call)).length>0;
+  return corePaymentsAfterFirstOfPhones(callPhones(call), call.channel).length>0;
 }
 function uniquePaidCount(calls){ return uniqueCustomerCalls(calls).filter(customerHasCorePayment).length; }
 function paymentAfterCallCount(calls){ return uniqueCustomerCalls(calls).filter(customerHasCorePayment).length; }
@@ -2562,7 +2563,7 @@ function drillPaidKpi(channel){
     hist = Array.from(new Set(hist)).sort((a,b)=>a.datetime-b.datetime);
     const firstC = hist.length ? hist[0].datetime : null;
     const lastC = hist.length ? hist[hist.length-1].datetime : null;
-    const pays = corePaymentsAfterFirstOfPhones(callPhones(c)).filter(p=>p.date);
+    const pays = corePaymentsAfterFirstOfPhones(callPhones(c), chName).filter(p=>p.date);
     const firstPay = pays[0] || null;
     const amount = pays.reduce((sum,p)=>sum+p.amount,0);
     const contactMonth = firstC ? monthKey(firstC) : null;
@@ -2760,7 +2761,7 @@ function drillEmployeePaid(emp, channel){
     const phones = callPhones(c);
     const aliasSet = new Set();
     phones.forEach(ph=> F.resolveAliases(ph).forEach(a=>aliasSet.add(a)));
-    const pays = corePaymentsAfterFirstOfPhones(phones);
+    const pays = corePaymentsAfterFirstOfPhones(phones, c.channel);
     const offers = Array.from(new Set(pays.map(p=>String(p.paymentType||'').trim()).filter(Boolean)));
     rows.push({ name: c.name || '—', phone: phones[0] || '—', amount: pays.reduce((sum,p)=>sum+p.amount,0), offer: offers.join(' + ') || '—' });
   });
