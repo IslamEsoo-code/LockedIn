@@ -1433,11 +1433,11 @@ function computeCustomerGroups(D){
     const phones = new Set();
     a.forEach(c=> callPhones(c).forEach(ph=> F.resolveAliases(ph).forEach(al=> phones.add(al))));
     phones.forEach(ph=>{
-      if(F.corePaidPhones.has(ph)) paid = true;
       totalPaid += D.payTotalByPhone.get(ph) || 0;
       const lp = D.lastPayByPhone.get(ph);
       if(lp && (!lastPayDate || lp > lastPayDate)) lastPayDate = lp;
     });
+    paid = corePaymentsAfterFirstOfPhones(Array.from(phones)).length>0;
     const registered = a.some(c=> c.regStatus==='Registered' || c.regStatus==='Paid');
     const estValue = F.avgOfferByTrack.get(last.track) || F.avgOfferOverall;
     groups.push({ first, last, records, paid, registered, totalPaid, lastPayDate, estValue,
@@ -1475,7 +1475,7 @@ function uniqueCustomerCount(calls){ return uniqueCustomerCalls(calls).length; }
 
 /* Money collected from ONE customer = every new-sale (New Comer) payment on any of
    the customer's phone aliases. Index is built once per data load. */
-function customerCoreRevenue(call){
+function coreRevIndex(){
   const F = window.DATA_FULL;
   if(!window.__coreRevIdx || window.__coreRevIdx.F!==F){
     const idx = new Map();
@@ -1484,24 +1484,47 @@ function customerCoreRevenue(call){
     });
     window.__coreRevIdx = {F, idx};
   }
-  const idx = window.__coreRevIdx.idx, seen = new Set();
-  callPhones(call).forEach(ph=> window.DATA_FULL.resolveAliases(ph).forEach(a=>{ const st=idx.get(a); if(st) st.forEach(pp=>seen.add(pp)); }));
-  let sum = 0; seen.forEach(pp=>{ sum += pp.amount; });
-  return sum;
+  return window.__coreRevIdx.idx;
 }
-/* New-sale payments matched to ONE lead through phone aliases (with the matched sheet row details). */
-function customerCorePaymentsFor(call){
-  customerCoreRevenue(call); // makes sure the index exists
-  const idx = window.__coreRevIdx.idx, seen = new Set();
-  callPhones(call).forEach(ph=> window.DATA_FULL.resolveAliases(ph).forEach(a=>{ const st=idx.get(a); if(st) st.forEach(pp=>seen.add(pp)); }));
+/* The day (00:00) of the customer's FIRST contact ever — any channel, whole history,
+   regardless of the top filters. Payments before it belong to an existing student,
+   not to a customer we won.  null = no dated contact found. */
+function customerFirstDayOfPhones(phones){
+  const F = window.DATA_FULL;
+  if(!window.__firstDayCache || window.__firstDayCache.F!==F) window.__firstDayCache = {F, m:new Map()};
+  const cache = window.__firstDayCache.m;
+  let best = null;
+  (phones||[]).forEach(ph=>{
+    if(!ph) return;
+    let v = cache.get(ph);
+    if(v===undefined){
+      v = null;
+      F.resolveAliases(ph).forEach(a=>{ (F.callIndex.get(a)||[]).forEach(x=>{ if(x.datetime && (!v || x.datetime < v)) v = x.datetime; }); });
+      cache.set(ph, v);
+    }
+    if(v && (!best || v < best)) best = v;
+  });
+  return best ? new Date(best.getFullYear(), best.getMonth(), best.getDate()) : null;
+}
+function corePaymentsOfPhones(phones){
+  const idx = coreRevIndex(), seen = new Set(), F = window.DATA_FULL;
+  (phones||[]).forEach(ph=> F.resolveAliases(ph).forEach(a=>{ const st=idx.get(a); if(st) st.forEach(pp=>seen.add(pp)); }));
   return Array.from(seen).sort((a,b)=>(a.date||0)-(b.date||0));
 }
-/* Payments that happened ON/AFTER the day the lead arrived (a payment before the lead = old customer, not a booking from this lead). */
-function customerPaymentsAfterLead(call){
-  if(!call.datetime) return [];
-  const d0 = new Date(call.datetime.getFullYear(), call.datetime.getMonth(), call.datetime.getDate());
-  return customerCorePaymentsFor(call).filter(p=> p.date && p.date >= d0);
+/* New-sale payments of ONE customer that happened on/after his first contact. */
+function corePaymentsAfterFirstOfPhones(phones){
+  const all = corePaymentsOfPhones(phones);
+  const d0 = customerFirstDayOfPhones(phones);
+  if(!d0) return all;               // no dated contact -> cannot tell, keep
+  return all.filter(p=> p.date && p.date >= d0);
 }
+function customerCoreRevenue(call){
+  return corePaymentsAfterFirstOfPhones(callPhones(call)).reduce((x,p)=>x+p.amount,0);
+}
+/* New-sale payments matched to ONE lead through phone aliases (with the matched sheet row details). */
+function customerCorePaymentsFor(call){ return corePaymentsOfPhones(callPhones(call)); }
+/* Payments counted for this customer = on/after his first contact (whole history). */
+function customerPaymentsAfterLead(call){ return corePaymentsAfterFirstOfPhones(callPhones(call)); }
 /* Logged calls (History column of the leads sheet) of ONE customer, oldest first. */
 function leadActionsFor(call){
   const F = window.DATA_FULL;
@@ -1530,7 +1553,8 @@ function fmtDuration(min){
    processAllData — was previously re-filtering ALL payments per customer. */
 function customerHasCorePayment(call){
   const F = window.DATA_FULL;
-  return callPhones(call).some(ph=> F.resolveAliases(ph).some(a=> F.corePaidPhones.has(a)));
+  if(!callPhones(call).some(ph=> F.resolveAliases(ph).some(a=> F.corePaidPhones.has(a)))) return false;
+  return corePaymentsAfterFirstOfPhones(callPhones(call)).length>0;
 }
 function uniquePaidCount(calls){ return uniqueCustomerCalls(calls).filter(customerHasCorePayment).length; }
 function paymentAfterCallCount(calls){ return uniqueCustomerCalls(calls).filter(customerHasCorePayment).length; }
@@ -2538,8 +2562,7 @@ function drillPaidKpi(channel){
     hist = Array.from(new Set(hist)).sort((a,b)=>a.datetime-b.datetime);
     const firstC = hist.length ? hist[0].datetime : null;
     const lastC = hist.length ? hist[hist.length-1].datetime : null;
-    const pays = F.payments.filter(p=> p.isCoreNewSale && p.amount>0 && p.date && p.phone && F.resolveAliases(p.phone).some(a=>aliasSet.has(a)))
-      .sort((a,b)=>a.date-b.date);
+    const pays = corePaymentsAfterFirstOfPhones(callPhones(c)).filter(p=>p.date);
     const firstPay = pays[0] || null;
     const amount = pays.reduce((sum,p)=>sum+p.amount,0);
     const contactMonth = firstC ? monthKey(firstC) : null;
@@ -2737,7 +2760,7 @@ function drillEmployeePaid(emp, channel){
     const phones = callPhones(c);
     const aliasSet = new Set();
     phones.forEach(ph=> F.resolveAliases(ph).forEach(a=>aliasSet.add(a)));
-    const pays = window.DATA.payments.filter(p=> p.isCoreNewSale && p.amount>0 && p.phone && F.resolveAliases(p.phone).some(a=>aliasSet.has(a)));
+    const pays = corePaymentsAfterFirstOfPhones(phones);
     const offers = Array.from(new Set(pays.map(p=>String(p.paymentType||'').trim()).filter(Boolean)));
     rows.push({ name: c.name || '—', phone: phones[0] || '—', amount: pays.reduce((sum,p)=>sum+p.amount,0), offer: offers.join(' + ') || '—' });
   });
@@ -5406,10 +5429,9 @@ function totalCustomers(){
   clusters.forEach(g=>{
     // Money = new-sale payments matched to ANY of the customer's calls/phones, dated on/after
     // the day of his FIRST contact (an older payment = an existing customer, not a booking from this contact).
-    const d0 = new Date(g.first.datetime.getFullYear(), g.first.datetime.getMonth(), g.first.datetime.getDate());
-    const paySet = new Set();
-    g.calls.forEach(cc=> customerCorePaymentsFor(cc).forEach(pp=>paySet.add(pp)));
-    const allPays = Array.from(paySet).sort((a,b)=>(a.date||0)-(b.date||0));
+    const gPhones = []; g.calls.forEach(cc=> callPhones(cc).forEach(ph=>gPhones.push(ph)));
+    const d0 = customerFirstDayOfPhones(gPhones) || new Date(g.first.datetime.getFullYear(), g.first.datetime.getMonth(), g.first.datetime.getDate());
+    const allPays = corePaymentsOfPhones(gPhones);
     const after = allPays.filter(pp=> pp.date && pp.date >= d0);
     const revenue = after.reduce((x,pp)=>x+pp.amount,0);
     list.push({
