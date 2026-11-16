@@ -5438,7 +5438,11 @@ function totalCustomers(){
     list.push({
       age: (g.calls.slice().sort((a,b)=>a.datetime-b.datetime).find(x=>x.age)||{}).age || 'غير محدد',
       gender: (g.calls.slice().sort((a,b)=>a.datetime-b.datetime).find(x=>x.gender)||{}).gender || 'غير محدد',
+      hasLead: !!g.leadLast,
+      res: g.leadLast ? (String(g.leadLast.callResult||'').trim() || 'غير محدد') : null,
+      reg: g.leadLast ? (String(g.leadLast.regStatus||'').trim() || 'غير محدد') : null,
       answered: !!(g.leadLast && leadResultIs(g.leadLast,'Answer')),
+      noAns: !!(g.leadLast && leadResultIs(g.leadLast,'No Answer')),
       name: g.first.name || g.last.name || '—', phone: callPhones(g.first)[0] || callPhones(g.last)[0] || '—',
       allPays, after,
       date: g.first.datetime,
@@ -5465,7 +5469,7 @@ function totalTemplate(){
     <div class="panel">
       <div class="badge-note" style="line-height:1.9;">
         <b>العميل</b> = رقم واحد من غير تكرار (حتى لو اتكلم من Leads و Received). التاريخ والمصدر والفرع والكورس = من <b>أول تواصل</b> ليه، والموظف = آخر واحد اتعامل معاه. &nbsp;•&nbsp;
-        <b>دفع</b> = عنده دفعة عميل جديد (New Comer) <u>بتاريخ يوم أول تواصل أو بعده</u> (دفعة قديمة قبل كده مش بتتحسب)، و<b>الفلوس</b> = مجموع دفعاته دي. &nbsp;•&nbsp; <b>ردّوا (Answer)</b> = العميل اللي آخر مكالمة ليه في الليدز نتيجتها Answer، و<b>تحويل على الرد</b> = اللي دفعوا منهم ÷ اللي ردّوا (عملاء Received بس مش داخلين فيها لأن الـ Answer موجود في الليدز بس). السن والنوع من أول مكالمة فيها البيان، و"غير محدد" = العميل ملوش بيان. &nbsp;•&nbsp; 👆 دوس على أي رقم (عملاء / ردّوا / دفعوا / الفلوس) تشوف العملاء نفسهم وتفاصيل دفعاتهم، وتصدّرهم Excel. &nbsp;•&nbsp;
+        <b>دفع</b> = عنده دفعة عميل جديد (New Comer) <u>بتاريخ يوم أول تواصل أو بعده</u> (دفعة قديمة قبل كده مش بتتحسب)، و<b>الفلوس</b> = مجموع دفعاته دي. &nbsp;•&nbsp; <b>نسبة الرد / No Answer</b> = من عملاء الليدز (آخر مكالمة ليه في الليدز: Call Result)، و<b>تحويل على الرد</b> = اللي دفعوا منهم ÷ اللي ردّوا (عملاء Received بس مش داخلين في النسب دي لأن الـ Answer موجود في الليدز بس). السن والنوع من أول مكالمة فيها البيان، و"غير محدد" = العميل ملوش بيان. &nbsp;•&nbsp; 👆 دوس على أي رقم (عملاء / ردّوا / دفعوا / الفلوس) تشوف العملاء نفسهم وتفاصيل دفعاتهم، وتصدّرهم Excel. &nbsp;•&nbsp;
         الصفحة بتتأثر بفلاتر أول الصفحة (الشهر / اللغة / الموظف). &nbsp;•&nbsp;
         نسبة الرد والـ No Action مش موجودين هنا لأنهم موجودين في الليدز بس.
       </div>
@@ -5493,6 +5497,10 @@ function totalTemplate(){
       ${panel('🎂 حسب السن', 'tot-age-table', 'total_by_age')}
       ${panel('🚻 ذكور / إناث', 'tot-gender-table', 'total_by_gender')}
     </div>
+    <div class="grid-2">
+      ${panel('📞 نتيجة المكالمة × حالة التسجيل', 'tot-result-reg-table', 'total_result_x_reg')}
+      ${panel('📊 نتائج المكالمات (Call Result)', 'tot-result-table', 'total_call_results')}
+    </div>
     ${panel('🧑‍💼 حسب الموظف (آخر واحد اتعامل مع العميل)', 'tot-agent-table', 'total_by_agent')}
   `;
 }
@@ -5501,7 +5509,7 @@ function totDrill(tableId, i, kind){
   const D = (window.__totDrill||{})[tableId] || [];
   const list = i<0 ? [].concat(...D.map(x=>x.list)) : (D[i] ? D[i].list : []);
   const title = i<0 ? 'الإجمالي' : (D[i] ? D[i].title : '');
-  openTotCustomers(title + ({paid:' — اللي دفعوا', ans:' — اللي ردّوا (Answer)'}[kind]||' — كل العملاء'), kind==='paid' ? list.filter(c=>c.paid) : (kind==='ans' ? list.filter(c=>c.answered) : list));
+  openTotCustomers(title + ({paid:' — اللي دفعوا', ans:' — اللي ردّوا (Answer)', noans:' — No Answer'}[kind]||' — كل العملاء'), kind==='paid' ? list.filter(c=>c.paid) : (kind==='ans' ? list.filter(c=>c.answered) : (kind==='noans' ? list.filter(c=>c.noAns) : list)));
 }
 function openTotCustomers(title, list){
   const rows = list.slice().sort((a,b)=> (b.revenue-a.revenue) || (a.date-b.date));
@@ -5521,36 +5529,67 @@ function totGroupTable(tableId, label, list, keyFn, opts){
   const groups = new Map();
   list.forEach(c=>{
     const k = keyFn(c);
-    if(!groups.has(k)) groups.set(k, {n:0, paid:0, rev:0, ans:0, paidAns:0, list:[]});
-    const g = groups.get(k); g.n++; g.list.push(c); if(c.paid) g.paid++; g.rev += c.revenue; if(c.answered){ g.ans++; if(c.paid) g.paidAns++; }
+    if(!groups.has(k)) groups.set(k, {n:0, paid:0, rev:0, ans:0, paidAns:0, noAns:0, ln:0, list:[]});
+    const g = groups.get(k); g.n++; g.list.push(c); if(c.paid) g.paid++; g.rev += c.revenue; if(c.hasLead) g.ln++; if(c.noAns) g.noAns++; if(c.answered){ g.ans++; if(c.paid) g.paidAns++; }
   });
   let entries = Array.from(groups.entries());
   entries = opts.order ? opts.order(entries) : entries.sort((a,b)=>b[1].n-a[1].n);
-  const T = entries.reduce((a,[,g])=>({n:a.n+g.n, paid:a.paid+g.paid, rev:a.rev+g.rev, ans:a.ans+g.ans, paidAns:a.paidAns+g.paidAns}), {n:0,paid:0,rev:0,ans:0,paidAns:0});
+  const T = entries.reduce((a,[,g])=>({n:a.n+g.n, paid:a.paid+g.paid, rev:a.rev+g.rev, ans:a.ans+g.ans, paidAns:a.paidAns+g.paidAns, noAns:a.noAns+g.noAns, ln:a.ln+g.ln}), {n:0,paid:0,rev:0,ans:0,paidAns:0,noAns:0,ln:0});
   const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
   window.__totDrill = window.__totDrill || {};
   window.__totDrill[tableId] = entries.map(([k,g])=>({title: label+': '+(opts.labelFn ? opts.labelFn(k) : String(k)), list: g.list}));
   const dc = (i,kind)=>`class="drill-row" style="cursor:pointer;" onclick="totDrill('${tableId}',${i},'${kind}')"`;
-  const row = ([k,g],i)=>`<tr><td>${esc(opts.labelFn ? opts.labelFn(k) : String(k))}</td><td ${dc(i,'all')}>${fmtNum(g.n)}</td><td>${pct(g.n,T.n)}</td><td ${dc(i,'paid')}>${fmtNum(g.paid)}</td><td style="font-weight:700;">${pct(g.paid,g.n)}</td><td ${dc(i,'ans')}>${fmtNum(g.ans)}</td><td style="font-weight:700; color:var(--green);">${pct(g.paidAns,g.ans)}</td><td ${dc(i,'paid')}><b>${fmtMoney(g.rev)}</b></td><td>${pct(g.rev,T.rev)}</td></tr>`;
-  const totalRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td ${dc(-1,'all')}><b>${fmtNum(T.n)}</b></td><td><b>${T.n?'100.0%':'—'}</b></td><td ${dc(-1,'paid')}><b>${fmtNum(T.paid)}</b></td><td><b>${pct(T.paid,T.n)}</b></td><td ${dc(-1,'ans')}><b>${fmtNum(T.ans)}</b></td><td><b>${pct(T.paidAns,T.ans)}</b></td><td ${dc(-1,'paid')}><b>${fmtMoney(T.rev)}</b></td><td><b>${T.rev?'100.0%':'—'}</b></td></tr>`;
-  el.innerHTML = `<thead><tr><th>${label}</th><th>عملاء</th><th>% من العملاء</th><th>دفعوا</th><th>نسبة التحويل</th><th>ردّوا (Answer)</th><th>تحويل على الرد</th><th>الفلوس</th><th>% من الفلوس</th></tr></thead>
-    <tbody>${entries.length ? entries.map((e,i)=>row(e,i)).join('')+totalRow : emptyRow(9,'لا توجد بيانات')}</tbody>`;
+  const row = ([k,g],i)=>`<tr><td>${esc(opts.labelFn ? opts.labelFn(k) : String(k))}</td><td ${dc(i,'all')}>${fmtNum(g.n)}</td><td>${pct(g.n,T.n)}</td><td ${dc(i,'paid')}>${fmtNum(g.paid)}</td><td style="font-weight:700;">${pct(g.paid,g.n)}</td><td ${dc(i,'ans')} style="cursor:pointer; font-weight:700;">${pct(g.ans,g.ln)}</td><td ${dc(i,'noans')} style="cursor:pointer; font-weight:700; color:var(--red);">${pct(g.noAns,g.ln)}</td><td style="font-weight:700; color:var(--green);">${pct(g.paidAns,g.ans)}</td><td ${dc(i,'paid')}><b>${fmtMoney(g.rev)}</b></td><td>${pct(g.rev,T.rev)}</td></tr>`;
+  const totalRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td ${dc(-1,'all')}><b>${fmtNum(T.n)}</b></td><td><b>${T.n?'100.0%':'—'}</b></td><td ${dc(-1,'paid')}><b>${fmtNum(T.paid)}</b></td><td><b>${pct(T.paid,T.n)}</b></td><td ${dc(-1,'ans')}><b>${pct(T.ans,T.ln)}</b></td><td ${dc(-1,'noans')}><b>${pct(T.noAns,T.ln)}</b></td><td><b>${pct(T.paidAns,T.ans)}</b></td><td ${dc(-1,'paid')}><b>${fmtMoney(T.rev)}</b></td><td><b>${T.rev?'100.0%':'—'}</b></td></tr>`;
+  el.innerHTML = `<thead><tr><th>${label}</th><th>عملاء</th><th>% من العملاء</th><th>دفعوا</th><th>نسبة التحويل</th><th>نسبة الرد (Answer)</th><th>نسبة No Answer</th><th>تحويل على الرد</th><th>الفلوس</th><th>% من الفلوس</th></tr></thead>
+    <tbody>${entries.length ? entries.map((e,i)=>row(e,i)).join('')+totalRow : emptyRow(10,'لا توجد بيانات')}</tbody>`;
   return {entries, T};
 }
 
+function renderTotPivots(list){
+  const L = list.filter(c=>c.hasLead);
+  const recOnly = list.length - L.length;
+  const resOrder = ['Answer','No Action Yet','No Answer','Wrong Number'];
+  const regOrder = ['Not Registered Yet','Paid','Registered'];
+  const uniq = (arr, pref)=>{ const set = Array.from(new Set(arr)); return set.sort((a,b)=>{ const ia=pref.indexOf(a), ib=pref.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib) || String(a).localeCompare(String(b)); }); };
+  const resKeys = uniq(L.map(c=>c.res), resOrder), regKeys = uniq(L.map(c=>c.reg), regOrder);
+  window.__totPivotLists = [];
+  const reg = (list_)=>{ window.__totPivotLists.push(list_); return window.__totPivotLists.length-1; };
+  const cellH = (lst, bold)=>`<td class="drill-row" style="cursor:pointer;" onclick="totPivotDrill(${reg(lst)})">${bold?'<b>':''}${lst.length? fmtNum(lst.length):''}${bold?'</b>':''}</td>`;
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const note = recOnly ? `<tr><td colspan="${regKeys.length+2}" style="color:var(--text-dim); font-size:11.5px;">ملحوظة: ${fmtNum(recOnly)} عميل Received بس (مفيش لهم ليد) مش داخلين في الجدول ده.</td></tr>` : '';
+  const el1 = document.getElementById('tot-result-reg-table');
+  if(el1) el1.innerHTML = `<thead><tr><th>نتيجة المكالمة</th>${regKeys.map(k=>`<th>${esc(k)}</th>`).join('')}<th>الإجمالي</th></tr></thead>
+    <tbody>${L.length ? resKeys.map(r=>{
+      const rowL = L.filter(c=>c.res===r);
+      return `<tr><td>${esc(r)}</td>${regKeys.map(k=>cellH(rowL.filter(c=>c.reg===k))).join('')}${cellH(rowL,true)}</tr>`;
+    }).join('') + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td>${regKeys.map(k=>cellH(L.filter(c=>c.reg===k),true)).join('')}${cellH(L,true)}</tr>` + note
+    : emptyRow(regKeys.length+2,'لا توجد بيانات ليدز')}</tbody>`;
+  const el2 = document.getElementById('tot-result-table');
+  if(el2) el2.innerHTML = `<thead><tr><th>نتيجة المكالمة</th><th>عدد العملاء</th><th>% من الإجمالي</th></tr></thead>
+    <tbody>${L.length ? resKeys.map(r=>{ const rowL = L.filter(c=>c.res===r); return `<tr><td>${esc(r)}</td>${cellH(rowL)}<td style="font-weight:700;">${pct(rowL.length,L.length)}</td></tr>`; }).join('')
+      + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td>${cellH(L,true)}<td><b>100.0%</b></td></tr>` + note.replace(`colspan="${regKeys.length+2}"`,'colspan="3"')
+    : emptyRow(3,'لا توجد بيانات ليدز')}</tbody>`;
+}
+function totPivotDrill(i){
+  const lst = (window.__totPivotLists||[])[i] || [];
+  openTotCustomers('نتيجة المكالمة', lst);
+}
 function renderTotal(){
   if(!document.getElementById('tot-kpis')) return;
   const list = totalCustomers();
   const n = list.length, paid = list.filter(c=>c.paid).length;
   const rev = list.reduce((x,c)=>x+c.revenue,0);
   const both = list.filter(c=>c.channels.size>1).length;
+  const leadN = list.filter(c=>c.hasLead).length, noAnsN = list.filter(c=>c.noAns).length;
   const ans = list.filter(c=>c.answered).length, paidAns = list.filter(c=>c.answered && c.paid).length;
   const kpis = [
     {icon:'👥', color:'#7c5cff', value:fmtNum(n), label:'عملاء (من غير تكرار)'},
     {icon:'✅', color:'#10b981', value:fmtNum(paid), label:'دفعوا (دوس تشوفهم)', click:"openTotCustomers('كل اللي دفعوا', window.__totCache.list.filter(c=>c.paid))"},
     {icon:'📈', color:'#3b82f6', value:n? fmtPct(paid/n*100):'—', label:'نسبة التحويل'},
     {icon:'💰', color:'#f59e0b', value:fmtMoney(rev), label:'الفلوس (دفعات العميل الجديد) — دوس تشوف العملاء', click:"openTotCustomers('كل اللي دفعوا', window.__totCache.list.filter(c=>c.paid))"},
-    {icon:'📞', color:'#0ea472', value:fmtNum(ans), label:'ردّوا (Answer) — دوس تشوفهم', click:"openTotCustomers('اللي ردّوا (Answer)', window.__totCache.list.filter(c=>c.answered))"},
+    {icon:'📞', color:'#0ea472', value:leadN? fmtPct(ans/leadN*100):'—', label:`نسبة الرد (Answer) — ${fmtNum(ans)} من ${fmtNum(leadN)} — دوس تشوفهم`, click:"openTotCustomers('اللي ردّوا (Answer)', window.__totCache.list.filter(c=>c.answered))"},
+    {icon:'📵', color:'#ef4444', value:leadN? fmtPct(noAnsN/leadN*100):'—', label:`نسبة No Answer — ${fmtNum(noAnsN)} من ${fmtNum(leadN)} — دوس تشوفهم`, click:"openTotCustomers('No Answer', window.__totCache.list.filter(c=>c.noAns))"},
     {icon:'🎯', color:'#16a34a', value:ans? fmtPct(paidAns/ans*100):'—', label:`نسبة التحويل على الـ Answer (${fmtNum(paidAns)} من ${fmtNum(ans)})`},
     {icon:'🧾', color:'#ec4899', value:paid? fmtMoney(Math.round(rev/paid)):'—', label:'متوسط الفلوس للعميل اللي دفع'},
     {icon:'🔀', color:'#14b8a6', value:fmtNum(both), label:'عملاء ظهروا في القناتين'},
@@ -5565,6 +5604,7 @@ function renderTotal(){
   totGroupTable('tot-lang-table','اللغة', list, c=>c.lang);
   totGroupTable('tot-track-table','التراك', list, c=>c.track);
   totGroupTable('tot-agent-table','الموظف', list, c=>c.agent);
+  renderTotPivots(list);
   const ageNum = k=> { const m = String(k).match(/\d+/); return m ? parseInt(m[0],10) : 9999; };
   totGroupTable('tot-age-table','الفئة العمرية', list, c=>c.age, {order:e=>e.sort((a,b)=>ageNum(a[0])-ageNum(b[0]))});
   const gLabel = {Male:'ذكور (Male)', Female:'إناث (Female)'};
