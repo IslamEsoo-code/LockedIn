@@ -349,6 +349,7 @@ try{ document.documentElement.setAttribute('data-theme', JSON.parse(localStorage
     <div class="nav-item active" data-page="overview" onclick="showPage('overview')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg> نظرة عامة</div>
     <div class="nav-item" data-page="calls" onclick="showPage('calls')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.7 2z"/></svg> المكالمات والليدز</div>
     <div class="nav-item" data-page="total" onclick="showPage('total')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg> الإجمالي الكلي</div>
+    <div class="nav-item" data-page="visitors" onclick="showPage('visitors')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg><span>زوار الفروع</span></div>
     <div class="nav-item" data-page="employees" onclick="showPage('employees')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg> أداء الموظفين</div>
     <div class="nav-item" data-page="money" onclick="showPage('money')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg> الفلوس والتارجت</div>
     <div class="nav-item" data-page="marketing" onclick="showPage('marketing')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2.5-7.5z"/></svg> الماركتينج</div>
@@ -1666,6 +1667,7 @@ function renderAllPages(){
     <div class="page active" id="page-overview">${overviewTemplate()}</div>
     <div class="page" id="page-calls">${callsTemplate()}</div>
     <div class="page" id="page-total">${totalTemplate()}</div>
+    <div class="page" id="page-visitors">${visitorsTemplate()}</div>
     <div class="page" id="page-employees">${employeesTemplate()}</div>
     <div class="page" id="page-money">${moneyTemplate()}</div>
     <div class="page" id="page-marketing">${marketingTemplate()}</div>
@@ -1673,7 +1675,7 @@ function renderAllPages(){
     <div class="page" id="page-compare">${compareTemplate()}</div>
   `;
   mc.innerHTML = html;
-  [renderOverview, renderCalls, renderTotal, renderEmployees, renderMoney, renderMarketing, renderFunnel, renderCompare].forEach(fn=>{
+  [renderOverview, renderCalls, renderTotal, renderVisitors, renderEmployees, renderMoney, renderMarketing, renderFunnel, renderCompare].forEach(fn=>{
     try{ fn(); }catch(err){ console.error(fn.name+' failed:', err); }
   });
   try{ renderBusinessDecisionReports(); }catch(err){ console.error('business reports failed:', err); }
@@ -5639,6 +5641,162 @@ function totPivotDrill(i){
   const lst = (window.__totPivotLists||[])[i] || [];
   openTotCustomers('نتيجة المكالمة', lst);
 }
+
+/* =========================================================
+   BRANCH VISITORS  (Students sheet = people who came to a branch)
+   - visitor = unique customer (phone aliases), month of his FIRST student record
+   - "no prior contact" = no Received/Leads call on/before the visit day
+========================================================= */
+function visitorsList(){
+  const F = window.DATA_FULL;
+  const groups = new Map();
+  (F.students||[]).forEach(st=>{
+    if(!st.date) return;
+    const ph = st.mobile1 || st.mobile2; if(!ph) return;
+    const key = F.resolveAliases(ph).slice().sort()[0];
+    const cur = groups.get(key);
+    if(!cur || st.date < cur.date) groups.set(key, st);
+  });
+  const out = [];
+  groups.forEach((st,key)=>{
+    const phones = new Set();
+    [st.mobile1, st.mobile2].forEach(ph=>{ if(ph) F.resolveAliases(ph).forEach(a=>phones.add(a)); });
+    const pl = Array.from(phones);
+    const dayStart = new Date(st.date.getFullYear(), st.date.getMonth(), st.date.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 86400000);
+    const calls = new Set();
+    pl.forEach(a=> (F.callIndex.get(a)||[]).forEach(c=>{ if(c.datetime && c.datetime < dayEnd) calls.add(c); }));
+    const callArr = Array.from(calls).sort((a,b)=>a.datetime-b.datetime);
+    const firstCall = callArr[0] || null;
+    const startDay = (firstCall && firstCall.datetime < dayStart) ? new Date(firstCall.datetime.getFullYear(), firstCall.datetime.getMonth(), firstCall.datetime.getDate()) : dayStart;
+    const pays = corePaymentsOfPhones(pl).filter(p=> p.date && p.date >= startDay);
+    out.push({
+      key, name: st.name||'—', phone: st.mobile1||st.mobile2, date: st.date, month: monthKey(st.date),
+      branch: st.location||'غير محدد', employee: st.employee||'—', track: st.track||'—', referal: st.referal||'غير محدد',
+      contacted: callArr.length>0, callsBefore: callArr.length, firstCall,
+      paid: pays.length>0, revenue: pays.reduce((x,p)=>x+p.amount,0), pays
+    });
+  });
+  return out.sort((a,b)=>a.date-b.date);
+}
+function visitorsTemplate(){
+  const xl = (id, name)=>`<button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('${id}','${name}')">⬇️ Excel</button>`;
+  const panel = (title, id, name, extra)=>`<div class="panel">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ${title}</span>${xl(id,name)}</div>
+      ${extra||''}<div style="overflow:auto; max-height:480px;"><table id="${id}"></table></div></div>`;
+  return `
+    ${pageHeader('زوار الفروع', 'عدد الزوار كل شهر وبيزيد ولا بيقل، ومين فيهم ماكانش ليه أي تواصل مع السيلز قبل ما يزور')}
+    <div class="panel"><div class="badge-note" style="line-height:1.9;">
+      <b>الزائر</b> = عميل ليه سجل في شيت <b>Students</b> (راح الفرع وتسجل)، بيتعد مرة واحدة (برقم موبايله) في شهر <u>أول سجل</u> ليه. &nbsp;•&nbsp;
+      <b>ليه تواصل قبل كده</b> = عنده مكالمة في Received أو Leads في يوم الزيارة أو قبله. <b>من غير تواصل</b> = مفيش له أي مكالمة لحد يوم زيارته (جه الفرع لوحده). &nbsp;•&nbsp;
+      <b>دفع / الكونفيرجن</b> = عنده دفعة عميل جديد (New Comer) بتاريخ أول تواصل ليه (أو يوم الزيارة لو مفيش تواصل) أو بعده. &nbsp;•&nbsp;
+      التغيير = مقارنة بالشهر اللي قبله، والشهر الجاري لسه ما خلصش فمقارنته مش نهائية. التقرير على كل البيانات (مش متأثر بفلتر الشهر). &nbsp;•&nbsp; 👆 دوس على أي رقم تشوف العملاء.
+    </div></div>
+    <div class="kpi-grid" id="vis-kpis"></div>
+    <div class="panel">
+      <div class="panel-title"><span class="bar"></span> زوار الفروع كل شهر (ليه تواصل / من غير تواصل)</div>
+      <div class="chart-wrap"><canvas id="vis-chart"></canvas></div>
+    </div>
+    ${panel('📈 تقرير الزوار الشهري', 'vis-month-table', 'branch_visitors_monthly')}
+    <div class="panel" style="margin-top:0;"><div class="panel-title"><span class="bar"></span> 🚶 العملاء اللي جم الفرع من غير أي تواصل سابق مع السيلز</div>
+      <div class="badge-note">العميل اللي ملهوش ولا مكالمة في Received أو Leads لحد يوم زيارته. بيوضح العدد كل شهر وبيزيد ولا بيقل، ونسبتهم من كل الزوار، وكونفيرجنهم.</div></div>
+    ${panel('🚶 من غير تواصل — شهر بشهر', 'vis-nocontact-table', 'visitors_no_prior_contact')}
+    <div class="grid-2">
+      ${panel('🏢 من غير تواصل — حسب الفرع', 'vis-nc-branch-table', 'visitors_no_contact_by_branch')}
+      ${panel('🧲 من غير تواصل — حسب المصدر (Referal)', 'vis-nc-ref-table', 'visitors_no_contact_by_referal')}
+    </div>`;
+}
+function openVisitorList(i){
+  const lst = (window.__visLists||[])[i]; if(!lst) return;
+  const fmtD = d=> d ? dayKey(d) : '—';
+  document.getElementById('drill-modal-title').textContent = `${lst.title} (${lst.list.length})`;
+  const rows = lst.list.slice().sort((a,b)=>(b.revenue-a.revenue)||(a.date-b.date));
+  const tot = rows.reduce((x,v)=>x+v.revenue,0);
+  document.getElementById('drill-modal-table').innerHTML = `
+    <thead><tr><th>الاسم</th><th>الموبايل</th><th>الفرع</th><th>الموظف</th><th>المصدر</th><th>تاريخ الزيارة</th><th>مكالمات قبل الزيارة</th><th>أول مكالمة</th><th>دفع؟</th><th>المبلغ</th></tr></thead>
+    <tbody>${rows.length ? rows.map(v=>`<tr><td>${esc(v.name)}</td><td>${esc(v.phone)}</td><td>${esc(v.branch)}</td><td>${esc(v.employee)}</td><td>${esc(v.referal)}</td><td>${fmtD(v.date)}</td><td>${fmtNum(v.callsBefore)}</td><td>${v.firstCall? fmtD(v.firstCall.datetime):'—'}</td><td>${v.paid?'✅':'—'}</td><td>${v.paid?'<b>'+fmtMoney(v.revenue)+'</b>':'—'}</td></tr>`).join('')
+      + (tot? `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td colspan="8"></td><td><b>${fmtMoney(tot)}</b></td></tr>`:'') : emptyRow(10,'لا يوجد')}</tbody>`;
+  document.getElementById('drill-modal-overlay').style.display = 'flex';
+}
+function renderVisitors(){
+  if(!document.getElementById('vis-kpis')) return;
+  const all = visitorsList();
+  window.__visLists = [];
+  const reg = (title, list)=>{ window.__visLists.push({title, list}); return window.__visLists.length-1; };
+  const num = (title, list, bold)=> list.length ? `<span class="drill-row" style="cursor:pointer;" onclick="openVisitorList(${reg(title,list)})">${bold?'<b>':''}${fmtNum(list.length)}${bold?'</b>':''}</span>` : '0';
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const curMonth = monthKey(new Date());
+  const months = Array.from(new Set(all.map(v=>v.month))).sort();
+  const chg = (cur, prev, m)=>{
+    if(prev===undefined || prev===null) return '<td>—</td><td>—</td>';
+    const d = cur-prev, p = prev ? d/prev*100 : null;
+    const col = d>0 ? 'var(--green)' : (d<0 ? 'var(--red)' : 'var(--text-dim)');
+    const arrow = d>0 ? '▲' : (d<0 ? '▼' : '■');
+    return `<td style="color:${col}; font-weight:700;">${arrow} ${d>0?'+':''}${fmtNum(d)}</td><td style="color:${col}; font-weight:700;">${p===null?'—':(d>0?'+':'')+fmtPct(p)}</td>`;
+  };
+  const rowsFor = months.map(m=>{
+    const L = all.filter(v=>v.month===m);
+    return {m, L, C: L.filter(v=>v.contacted), N: L.filter(v=>!v.contacted)};
+  });
+  const sumRev = l=> l.reduce((x,v)=>x+v.revenue,0);
+  const paidOf = l=> l.filter(v=>v.paid);
+  const flag = m=> m===curMonth ? ' <span style="color:var(--text-dim); font-size:10.5px;">(لسه شغال)</span>' : '';
+
+  // KPIs
+  const done = rowsFor.filter(r=>r.m!==curMonth);
+  const lastDone = done[done.length-1], prevDone = done[done.length-2];
+  const tN = all.filter(v=>!v.contacted), tPaid = paidOf(all), tNPaid = paidOf(tN);
+  const trendTxt = (lastDone && prevDone) ? (()=>{ const d=lastDone.L.length-prevDone.L.length, p=prevDone.L.length? d/prevDone.L.length*100:0; return `${d>0?'▲ +':(d<0?'▼ ':'■ ')}${fmtPct(Math.abs(p))}`; })() : '—';
+  document.getElementById('vis-kpis').innerHTML = [
+    {icon:'🏢', color:'#7c5cff', value:fmtNum(all.length), label:'إجمالي الزوار (من غير تكرار)'},
+    {icon:'📅', color:'#06b6d4', value: months.length? fmtNum(Math.round(all.length/months.length)) : '—', label:'متوسط الزوار في الشهر'},
+    {icon:'📈', color:'#10b981', value: trendTxt, label: lastDone&&prevDone ? `${monthLabel(lastDone.m)} مقابل ${monthLabel(prevDone.m)}` : 'آخر شهر مقابل اللي قبله'},
+    {icon:'🚶', color:'#f59e0b', value: fmtNum(tN.length), label:`من غير تواصل سابق (${pct(tN.length, all.length)} من الزوار)`},
+    {icon:'🎯', color:'#16a34a', value: pct(tPaid.length, all.length), label:`كونفيرجن كل الزوار (${fmtNum(tPaid.length)} دفعوا)`},
+    {icon:'🧭', color:'#ec4899', value: pct(tNPaid.length, tN.length), label:`كونفيرجن اللي من غير تواصل (${fmtNum(tNPaid.length)} من ${fmtNum(tN.length)})`}
+  ].map(k=>`<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:${k.color}33;">${k.icon}</div><div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div></div></div>`).join('');
+
+  // chart
+  makeChart('vis-chart', {
+    type:'bar',
+    data:{ labels: months.map(monthLabel), datasets:[
+      {label:'ليه تواصل قبل كده', data: rowsFor.map(r=>r.C.length), backgroundColor:'#7c5cff', stack:'s'},
+      {label:'من غير تواصل', data: rowsFor.map(r=>r.N.length), backgroundColor:'#f59e0b', stack:'s'}
+    ]},
+    options:{ plugins:{legend:{position:'bottom'}}, scales:{ x:{stacked:true, grid:{display:false}}, y:{stacked:true} } }
+  });
+
+  // monthly table
+  const T = {L:all, C:all.filter(v=>v.contacted), N:tN};
+  document.getElementById('vis-month-table').innerHTML = `
+    <thead><tr><th>الشهر</th><th>الزوار</th><th>التغيير</th><th>% التغيير</th><th>ليه تواصل قبل كده</th><th>من غير تواصل</th><th>% من غير تواصل</th><th>دفعوا</th><th>الكونفيرجن</th><th>كونفيرجن (ليه تواصل)</th><th>كونفيرجن (من غير تواصل)</th><th>الفلوس</th></tr></thead>
+    <tbody>${rowsFor.length ? rowsFor.map((r,i)=>{
+      const prev = i>0 ? rowsFor[i-1].L.length : null;
+      return `<tr><td>${monthLabel(r.m)}${flag(r.m)}</td><td>${num(monthLabel(r.m)+' — كل الزوار', r.L, true)}</td>${chg(r.L.length, prev)}<td>${num(monthLabel(r.m)+' — ليه تواصل', r.C)}</td><td>${num(monthLabel(r.m)+' — من غير تواصل', r.N)}</td><td>${pct(r.N.length, r.L.length)}</td><td>${num(monthLabel(r.m)+' — دفعوا', paidOf(r.L))}</td><td style="font-weight:700; color:var(--green);">${pct(paidOf(r.L).length, r.L.length)}</td><td>${pct(paidOf(r.C).length, r.C.length)}</td><td>${pct(paidOf(r.N).length, r.N.length)}</td><td><b>${fmtMoney(sumRev(r.L))}</b></td></tr>`;
+    }).join('') + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td>${num('كل الزوار', all, true)}</td><td></td><td></td><td>${num('ليه تواصل', T.C)}</td><td>${num('من غير تواصل', T.N)}</td><td><b>${pct(T.N.length, all.length)}</b></td><td>${num('دفعوا', tPaid)}</td><td><b>${pct(tPaid.length, all.length)}</b></td><td><b>${pct(paidOf(T.C).length, T.C.length)}</b></td><td><b>${pct(tNPaid.length, tN.length)}</b></td><td><b>${fmtMoney(sumRev(all))}</b></td></tr>` : emptyRow(12,'مفيش سجلات في شيت Students')}</tbody>`;
+
+  // no-contact monthly
+  document.getElementById('vis-nocontact-table').innerHTML = `
+    <thead><tr><th>الشهر</th><th>من غير تواصل</th><th>التغيير</th><th>% التغيير</th><th>% من زوار الشهر</th><th>دفعوا</th><th>الكونفيرجن</th><th>الفلوس</th><th>متوسط الدفعة</th></tr></thead>
+    <tbody>${rowsFor.length ? rowsFor.map((r,i)=>{
+      const prev = i>0 ? rowsFor[i-1].N.length : null, pd = paidOf(r.N), rv = sumRev(r.N);
+      return `<tr><td>${monthLabel(r.m)}${flag(r.m)}</td><td>${num(monthLabel(r.m)+' — من غير تواصل', r.N, true)}</td>${chg(r.N.length, prev)}<td>${pct(r.N.length, r.L.length)}</td><td>${num(monthLabel(r.m)+' — من غير تواصل ودفعوا', pd)}</td><td style="font-weight:700; color:var(--green);">${pct(pd.length, r.N.length)}</td><td><b>${fmtMoney(rv)}</b></td><td>${pd.length? fmtMoney(rv/pd.length):'—'}</td></tr>`;
+    }).join('') + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td>${num('من غير تواصل', tN, true)}</td><td></td><td></td><td><b>${pct(tN.length, all.length)}</b></td><td>${num('من غير تواصل ودفعوا', tNPaid)}</td><td><b>${pct(tNPaid.length, tN.length)}</b></td><td><b>${fmtMoney(sumRev(tN))}</b></td><td>${tNPaid.length? fmtMoney(sumRev(tN)/tNPaid.length):'—'}</td></tr>` : emptyRow(9,'مفيش بيانات')}</tbody>`;
+
+  // no-contact by branch / referal
+  const grp = (keyFn, tableId, label)=>{
+    const m = new Map();
+    tN.forEach(v=>{ const k = keyFn(v); if(!m.has(k)) m.set(k,[]); m.get(k).push(v); });
+    const ent = Array.from(m.entries()).sort((a,b)=>b[1].length-a[1].length);
+    document.getElementById(tableId).innerHTML = `
+      <thead><tr><th>${label}</th><th>من غير تواصل</th><th>% من الإجمالي</th><th>دفعوا</th><th>الكونفيرجن</th><th>الفلوس</th></tr></thead>
+      <tbody>${ent.length ? ent.map(([k,l])=>{ const pd=paidOf(l); return `<tr><td>${esc(k)}</td><td>${num(label+': '+k+' — من غير تواصل', l)}</td><td>${pct(l.length, tN.length)}</td><td>${num(label+': '+k+' — دفعوا', pd)}</td><td style="font-weight:700;">${pct(pd.length, l.length)}</td><td><b>${fmtMoney(sumRev(l))}</b></td></tr>`; }).join('')
+        + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(tN.length)}</b></td><td><b>100.0%</b></td><td><b>${fmtNum(tNPaid.length)}</b></td><td><b>${pct(tNPaid.length, tN.length)}</b></td><td><b>${fmtMoney(sumRev(tN))}</b></td></tr>` : emptyRow(6,'مفيش بيانات')}</tbody>`;
+  };
+  grp(v=>v.branch, 'vis-nc-branch-table', 'الفرع');
+  grp(v=>v.referal, 'vis-nc-ref-table', 'المصدر');
+}
+
 function renderTotal(){
   if(!document.getElementById('tot-kpis')) return;
   const list = totalCustomers();
