@@ -914,6 +914,18 @@ function fmtNum(n){
 }
 function fmtMoney(n){ return fmtNum(n)+' ج.م'; }
 function fmtPct(n){ return (isFinite(n)? n.toFixed(1):'0') + '%'; }
+/* Free-text label cleaner for Campaign / Reason / Reason 2: trims, collapses
+   spaces, treats "-" / empty as missing, and merges case variants
+   ("Facebook" vs "facebook") under the first spelling seen. */
+const __labelCanon = new Map();
+function normLabel(v){
+  if(v===null || v===undefined) return null;
+  const s = String(v).replace(/\s+/g,' ').trim();
+  if(!s || s==='-' || s==='—') return null;
+  const k = s.toLowerCase();
+  if(!__labelCanon.has(k)) __labelCanon.set(k, s);
+  return __labelCanon.get(k);
+}
 function normSource(s){
   if(!s) return 'غير معروف';
   const x = String(s).trim().toLowerCase();
@@ -1041,6 +1053,7 @@ function processAllData(raw){
     source: normSource(r['Source']), status: r['Status'], segment: r['Segment']||null,
     job: r['Job']||null, age: r['Age']||null, gender: r['Gender']||null,
     government: r['Government']||null, region: r['Region']||null, country: r['Country']||null,
+    campaign: normLabel(r['Campaign']), reason: normLabel(r['Reason']), reason2: normLabel(r['Reason 2']),
     regStatus: r['Not Reg / Reg / Paid'], callResult: r['Call Result'], channel:'Received'
   }));
   const leads = raw.leads
@@ -1052,6 +1065,7 @@ function processAllData(raw){
     source: normSource(r['Source']), status: r['Status'], segment: r['Segment']||null,
     job: r['Job']||null, age: r['Age']||null, gender: r['Gender']||null,
     government: r['Government']||null, region: r['Region']||null, country: r['Country']||null,
+    campaign: normLabel(r['Campaign']), reason: normLabel(r['Reason']), reason2: normLabel(r['Reason 2']),
     regStatus: r['Not Reg / Reg / Paid'], callResult: r['Call Result'], channel:'Leads'
   }));
   const allCalls = received.concat(leads).filter(c=>c.agent);
@@ -2203,6 +2217,25 @@ function callsTemplate(){
       <div style="overflow:auto; max-height:320px;"><table id="received-job-table"></table></div>
     </div>
 
+    <div class="panel">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📣 الحملة (Campaign) — Received</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('received-campaign-table','campaign_breakdown_received')">⬇️ Excel</button></div>
+      <div class="badge-note">عمود Campaign في شيت Received — نسبة التحويل محسوبة من الفلوس الفعلي</div>
+      <div style="overflow:auto; max-height:320px;"><table id="received-campaign-table"></table></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ❓ السبب (Reason) — Received</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('received-reason-table','reason_breakdown_received')">⬇️ Excel</button></div>
+        <div class="badge-note">عمود Reason</div>
+        <div style="overflow:auto; max-height:320px;"><table id="received-reason-table"></table></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ❓ السبب 2 (Reason 2) — Received</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('received-reason2-table','reason2_breakdown_received')">⬇️ Excel</button></div>
+        <div class="badge-note">عمود Reason 2</div>
+        <div style="overflow:auto; max-height:320px;"><table id="received-reason2-table"></table></div>
+      </div>
+    </div>
+
     <div class="grid-2">
       <div class="panel">
         <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📚 الكورس (Course) — Received</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('received-course-table','course_performance_received')">⬇️ Excel</button></div>
@@ -2390,6 +2423,25 @@ function callsTemplate(){
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 💼 الوظيفة (Job)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-job-table','job_breakdown')">⬇️ Excel</button></div>
       <div class="badge-note">عمود Job في شيت Leads — نسبة التحويل محسوبة من Not Reg / Reg / Paid</div>
       <div style="overflow:auto; max-height:320px;"><table id="leads-job-table"></table></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📣 الحملة (Campaign)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-campaign-table','campaign_breakdown_leads')">⬇️ Excel</button></div>
+      <div class="badge-note">عمود Campaign في شيت Leads — نسبة التحويل محسوبة من الفلوس الفعلي</div>
+      <div style="overflow:auto; max-height:320px;"><table id="leads-campaign-table"></table></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ❓ السبب (Reason)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-reason-table','reason_breakdown_leads')">⬇️ Excel</button></div>
+        <div class="badge-note">عمود Reason</div>
+        <div style="overflow:auto; max-height:320px;"><table id="leads-reason-table"></table></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ❓ السبب 2 (Reason 2)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-reason2-table','reason2_breakdown_leads')">⬇️ Excel</button></div>
+        <div class="badge-note">عمود Reason 2</div>
+        <div style="overflow:auto; max-height:320px;"><table id="leads-reason2-table"></table></div>
+      </div>
     </div>
 
     <div class="grid-2">
@@ -2697,6 +2749,7 @@ function renderCalls(){
   renderLeadsGeoDistribution('leads');
   renderLeadDemographics('leads');
   renderLeadJobTable('leads');
+  try{ renderLeadCampaignReason('leads'); }catch(err){ console.error('campaign/reason report failed', err); }
   renderLeadCourseTrack('leads');
   renderLeadWeekday('leads');
   renderPeriodComparison('leads');
@@ -2709,6 +2762,7 @@ function renderCalls(){
   renderLeadInsights('received');
   renderLeadDemographics('received');
   renderLeadJobTable('received');
+  try{ renderLeadCampaignReason('received'); }catch(err){ console.error('campaign/reason report failed', err); }
   renderLeadCourseTrack('received');
   renderLeadWeekday('received');
   renderPeriodComparison('received');
@@ -3739,6 +3793,37 @@ function renderLeadDemographics(channel){
     options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:9, font:{size:10}}},
       tooltip:{callbacks:{label:(ctx)=> `${ctx.label}: ${fmtNum(ctx.parsed)} (${withGender.length? (ctx.parsed/withGender.length*100).toFixed(1):0}%)`}} } }
   });
+}
+
+function renderLeadCampaignReason(channel){
+  channel = channel || 'leads';
+  const drillFn = channelDrillFnName(channel);
+  const leads = channelList(channel);
+  const total = leads.length;
+  function build(tableId, field, colLabel, titlePrefix){
+    const el = document.getElementById(tableId);
+    if(!el) return;
+    const groups = new Map();
+    leads.forEach(c=>{
+      const k = c[field] || 'غير محدد';
+      if(!groups.has(k)) groups.set(k, {total:0, paid:0});
+      const g = groups.get(k);
+      g.total++;
+      if(customerHasCorePayment(c)) g.paid++;
+    });
+    const filled = leads.filter(c=>c[field]).length;
+    const entries = Array.from(groups.entries()).sort((a,b)=>{
+      if(a[0]==='غير محدد') return 1; if(b[0]==='غير محدد') return -1;
+      return b[1].total-a[1].total;
+    });
+    const note = filled===0 ? `<tr><td colspan="4" style="color:var(--text-dim); font-size:12px;">العمود لسه فاضي في الشيت — هيظهر هنا أول ما يتملى</td></tr>` : '';
+    el.innerHTML = `
+      <thead><tr><th>${colLabel}</th><th>عدد</th><th>% من الإجمالي</th><th>نسبة التحويل</th></tr></thead>
+      <tbody>${note}${entries.map(([k,g])=>`<tr class="drill-row" onclick='${drillFn}(${attrSafe(field)}, ${attrSafe(k)}, ${attrSafe(titlePrefix+': '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td>${fmtPct(total? g.total/total*100:0)}</td><td style="font-weight:700;">${fmtPct(g.total? g.paid/g.total*100:0)}</td></tr>`).join('') || emptyRow(4,'لا توجد بيانات')}</tbody>`;
+  }
+  build(channel+'-campaign-table', 'campaign', 'الحملة', 'الحملة');
+  build(channel+'-reason-table', 'reason', 'السبب', 'السبب');
+  build(channel+'-reason2-table', 'reason2', 'السبب 2', 'السبب 2');
 }
 
 function renderLeadJobTable(channel){
