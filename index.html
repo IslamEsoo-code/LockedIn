@@ -4541,8 +4541,8 @@ function moneyTemplate(){
     </div>
 
     <div class="panel">
-      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 💳 العملاء اللي دفعوا — بيدفعوا بأنهي طريقة دفع؟</span><span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('money-payers-method-table','payers_by_method')">⬇️ Excel (الطرق)</button> <button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('money-payers-table','payers_list')">⬇️ Excel (العملاء)</button></span></div>
-      <div class="badge-note">كل عميل دفع (حسب رقم موبايله) في الفترة المختارة، وبأنهي طريقة. العميل اللي دفع بأكتر من طريقة بيتحسب في كل طريقة منهم (فنسبة العملاء ممكن تزيد عن 100%)، لكن <b>% من الإجمالي</b> محسوبة على المبلغ فمجموعها 100%. دوس على أي طريقة تفلتر قايمة العملاء.</div>
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 💳 العملاء الجدد اللي دفعوا — بيدفعوا بأنهي طريقة دفع؟</span><span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('money-payers-method-table','payers_by_method')">⬇️ Excel (الطرق)</button> <button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('money-payers-table','payers_list')">⬇️ Excel (العملاء)</button></span></div>
+      <div class="badge-note"><b>العملاء الجدد بس (دفعات New Comer)</b> — مش داخل هنا الريتنشن ولا باقي الفلوس ولا الكتب/الشهادات. كل عميل بيتجمع حسب رقم موبايله في الفترة المختارة، وبأنهي طريقة دفع. العميل اللي دفع بأكتر من طريقة بيتحسب في كل طريقة منهم (فنسبة العملاء ممكن تزيد عن 100%)، لكن <b>% من الإجمالي</b> محسوبة على المبلغ فمجموعها 100%. دوس على أي طريقة تفلتر قايمة العملاء.</div>
       <div style="overflow:auto;"><table id="money-payers-method-table"></table></div>
       <div style="display:flex; gap:10px; align-items:center; margin:14px 0 8px;">
         <b style="font-size:13px;">قايمة العملاء:</b>
@@ -4626,7 +4626,7 @@ function moneyTemplate(){
 function renderMoneyPayersByMethod(payments){
   const NA = 'غير محدد';
   const custs = new Map();
-  payments.filter(p=>p.amount>0).forEach(p=>{
+  payments.filter(p=>p.amount>0 && p.isCoreNewSale).forEach(p=>{
     const key = p.phone || ('name:'+(p.studentName||'?'));
     if(!custs.has(key)) custs.set(key, {name:p.studentName||'—', phone:p.phone||'—', total:0, count:0, methods:new Map(), last:null});
     const c = custs.get(key), m = (p.method && String(p.method).trim()) || NA;
