@@ -2217,11 +2217,6 @@ function callsTemplate(){
       <div style="overflow:auto; max-height:320px;"><table id="received-job-table"></table></div>
     </div>
 
-    <div class="panel">
-      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📣 الحملة (Campaign) — Received</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('received-campaign-table','campaign_breakdown_received')">⬇️ Excel</button></div>
-      <div class="badge-note">عمود Campaign في شيت Received — نسبة التحويل محسوبة من الفلوس الفعلي</div>
-      <div style="overflow:auto; max-height:320px;"><table id="received-campaign-table"></table></div>
-    </div>
 
 
     <div class="grid-2">
@@ -2738,7 +2733,6 @@ function renderCalls(){
   renderLeadInsights('received');
   renderLeadDemographics('received');
   renderLeadJobTable('received');
-  try{ renderLeadCampaignReason('received'); }catch(err){ console.error('campaign/reason report failed', err); }
   renderLeadCourseTrack('received');
   renderLeadWeekday('received');
   renderPeriodComparison('received');
@@ -5569,7 +5563,7 @@ function totalCustomers(){
       name: g.first.name || g.last.name || '—', phone: callPhones(g.first)[0] || callPhones(g.last)[0] || '—',
       allPays, after,
       date: g.first.datetime,
-      campaign: (g.calls.slice().sort((a,b)=>a.datetime-b.datetime).find(x=>x.campaign)||{}).campaign || 'غير محدد',
+      campaign: (g.calls.filter(x=>x.channel==='Leads').sort((a,b)=>a.datetime-b.datetime).find(x=>x.campaign)||{}).campaign || 'غير محدد',
       source: g.first.source || 'غير معروف',
       branch: g.first.branch || 'غير محدد',
       lang: classifyCourse(g.first.course) || 'غير محدد',
@@ -5621,7 +5615,7 @@ function totalTemplate(){
       ${panel('🎂 حسب السن', 'tot-age-table', 'total_by_age')}
       ${panel('🚻 ذكور / إناث', 'tot-gender-table', 'total_by_gender')}
     </div>
-    ${panel('📣 حسب الحملة (Campaign)', 'tot-campaign-table', 'total_by_campaign', '<div class="badge-note">الحملة من أول تواصل للعميل (Leads أو Received) — الفلوس = دفعات العميل الجديد بعد أول تواصل</div>')}
+    ${panel('📣 حسب الحملة (Campaign)', 'tot-campaign-table', 'total_by_campaign', '<div class="badge-note">عملاء الليدز بس (Received ملوش Campaign) — الفلوس = دفعات العميل الجديد بعد أول تواصل</div>')}
     ${panel('🧑‍💼 حسب الموظف (آخر واحد اتعامل مع العميل)', 'tot-agent-table', 'total_by_agent')}
   `;
 }
@@ -5695,6 +5689,7 @@ function renderTotPivots(list){
 function totCampaignTable(list){
   const el = document.getElementById('tot-campaign-table');
   if(!el) return;
+  list = list.filter(c=>c.hasLead); // Received has no Campaign column
   const groups = new Map();
   list.forEach(c=>{
     const k = c.campaign || 'غير محدد';
