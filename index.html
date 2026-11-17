@@ -2223,18 +2223,6 @@ function callsTemplate(){
       <div style="overflow:auto; max-height:320px;"><table id="received-campaign-table"></table></div>
     </div>
 
-    <div class="grid-2">
-      <div class="panel">
-        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ❓ السبب (Reason) — Received</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('received-reason-table','reason_breakdown_received')">⬇️ Excel</button></div>
-        <div class="badge-note">عمود Reason</div>
-        <div style="overflow:auto; max-height:320px;"><table id="received-reason-table"></table></div>
-      </div>
-      <div class="panel">
-        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ❓ السبب 2 (Reason 2) — Received</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('received-reason2-table','reason2_breakdown_received')">⬇️ Excel</button></div>
-        <div class="badge-note">عمود Reason 2</div>
-        <div style="overflow:auto; max-height:320px;"><table id="received-reason2-table"></table></div>
-      </div>
-    </div>
 
     <div class="grid-2">
       <div class="panel">
@@ -2431,18 +2419,6 @@ function callsTemplate(){
       <div style="overflow:auto; max-height:320px;"><table id="leads-campaign-table"></table></div>
     </div>
 
-    <div class="grid-2">
-      <div class="panel">
-        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ❓ السبب (Reason)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-reason-table','reason_breakdown_leads')">⬇️ Excel</button></div>
-        <div class="badge-note">عمود Reason</div>
-        <div style="overflow:auto; max-height:320px;"><table id="leads-reason-table"></table></div>
-      </div>
-      <div class="panel">
-        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ❓ السبب 2 (Reason 2)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-reason2-table','reason2_breakdown_leads')">⬇️ Excel</button></div>
-        <div class="badge-note">عمود Reason 2</div>
-        <div style="overflow:auto; max-height:320px;"><table id="leads-reason2-table"></table></div>
-      </div>
-    </div>
 
     <div class="grid-2">
       <div class="panel">
@@ -3797,33 +3773,29 @@ function renderLeadDemographics(channel){
 
 function renderLeadCampaignReason(channel){
   channel = channel || 'leads';
+  const el = document.getElementById(channel+'-campaign-table');
+  if(!el) return;
   const drillFn = channelDrillFnName(channel);
   const leads = channelList(channel);
   const total = leads.length;
-  function build(tableId, field, colLabel, titlePrefix){
-    const el = document.getElementById(tableId);
-    if(!el) return;
-    const groups = new Map();
-    leads.forEach(c=>{
-      const k = c[field] || 'غير محدد';
-      if(!groups.has(k)) groups.set(k, {total:0, paid:0});
-      const g = groups.get(k);
-      g.total++;
-      if(customerHasCorePayment(c)) g.paid++;
-    });
-    const filled = leads.filter(c=>c[field]).length;
-    const entries = Array.from(groups.entries()).sort((a,b)=>{
-      if(a[0]==='غير محدد') return 1; if(b[0]==='غير محدد') return -1;
-      return b[1].total-a[1].total;
-    });
-    const note = filled===0 ? `<tr><td colspan="4" style="color:var(--text-dim); font-size:12px;">العمود لسه فاضي في الشيت — هيظهر هنا أول ما يتملى</td></tr>` : '';
-    el.innerHTML = `
-      <thead><tr><th>${colLabel}</th><th>عدد</th><th>% من الإجمالي</th><th>نسبة التحويل</th></tr></thead>
-      <tbody>${note}${entries.map(([k,g])=>`<tr class="drill-row" onclick='${drillFn}(${attrSafe(field)}, ${attrSafe(k)}, ${attrSafe(titlePrefix+': '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td>${fmtPct(total? g.total/total*100:0)}</td><td style="font-weight:700;">${fmtPct(g.total? g.paid/g.total*100:0)}</td></tr>`).join('') || emptyRow(4,'لا توجد بيانات')}</tbody>`;
-  }
-  build(channel+'-campaign-table', 'campaign', 'الحملة', 'الحملة');
-  build(channel+'-reason-table', 'reason', 'السبب', 'السبب');
-  build(channel+'-reason2-table', 'reason2', 'السبب 2', 'السبب 2');
+  const groups = new Map();
+  leads.forEach(c=>{
+    const k = c.campaign || 'غير محدد';
+    if(!groups.has(k)) groups.set(k, {total:0, paid:0, rev:0});
+    const g = groups.get(k);
+    g.total++;
+    if(customerHasCorePayment(c)){ g.paid++; g.rev += customerCoreRevenue(c); }
+  });
+  const filled = leads.filter(c=>c.campaign).length;
+  const entries = Array.from(groups.entries()).sort((a,b)=>{
+    if(a[0]==='غير محدد') return 1; if(b[0]==='غير محدد') return -1;
+    return b[1].total-a[1].total;
+  });
+  const T = entries.reduce((a,[,g])=>({total:a.total+g.total, paid:a.paid+g.paid, rev:a.rev+g.rev}), {total:0,paid:0,rev:0});
+  const note = filled===0 ? `<tr><td colspan="6" style="color:var(--text-dim); font-size:12px;">العمود لسه فاضي في الشيت — هيظهر هنا أول ما يتملى</td></tr>` : '';
+  el.innerHTML = `
+    <thead><tr><th>الحملة</th><th>عدد</th><th>% من الإجمالي</th><th>دفعوا</th><th>نسبة التحويل</th><th>الفلوس</th></tr></thead>
+    <tbody>${note}${entries.map(([k,g])=>`<tr class="drill-row" onclick='${drillFn}("campaign", ${attrSafe(k)}, ${attrSafe('الحملة: '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td>${fmtPct(total? g.total/total*100:0)}</td><td>${fmtNum(g.paid)}</td><td style="font-weight:700;">${fmtPct(g.total? g.paid/g.total*100:0)}</td><td><b>${fmtMoney(g.rev)}</b></td></tr>`).join('') + (entries.length ? `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(T.total)}</b></td><td><b>100.0%</b></td><td><b>${fmtNum(T.paid)}</b></td><td><b>${fmtPct(T.total? T.paid/T.total*100:0)}</b></td><td><b>${fmtMoney(T.rev)}</b></td></tr>` : emptyRow(6,'لا توجد بيانات'))}</tbody>`;
 }
 
 function renderLeadJobTable(channel){
@@ -5597,6 +5569,7 @@ function totalCustomers(){
       name: g.first.name || g.last.name || '—', phone: callPhones(g.first)[0] || callPhones(g.last)[0] || '—',
       allPays, after,
       date: g.first.datetime,
+      campaign: (g.calls.slice().sort((a,b)=>a.datetime-b.datetime).find(x=>x.campaign)||{}).campaign || 'غير محدد',
       source: g.first.source || 'غير معروف',
       branch: g.first.branch || 'غير محدد',
       lang: classifyCourse(g.first.course) || 'غير محدد',
@@ -5648,10 +5621,7 @@ function totalTemplate(){
       ${panel('🎂 حسب السن', 'tot-age-table', 'total_by_age')}
       ${panel('🚻 ذكور / إناث', 'tot-gender-table', 'total_by_gender')}
     </div>
-    <div class="grid-2">
-      ${panel('📞 نتيجة المكالمة × حالة التسجيل', 'tot-result-reg-table', 'total_result_x_reg')}
-      ${panel('📊 نتائج المكالمات (Call Result)', 'tot-result-table', 'total_call_results')}
-    </div>
+    ${panel('📣 حسب الحملة (Campaign)', 'tot-campaign-table', 'total_by_campaign', '<div class="badge-note">الحملة من أول تواصل للعميل (Leads أو Received) — الفلوس = دفعات العميل الجديد بعد أول تواصل</div>')}
     ${panel('🧑‍💼 حسب الموظف (آخر واحد اتعامل مع العميل)', 'tot-agent-table', 'total_by_agent')}
   `;
 }
@@ -5721,6 +5691,29 @@ function renderTotPivots(list){
     <tbody>${L.length ? resKeys.map(r=>{ const rowL = L.filter(c=>c.res===r); return `<tr><td>${esc(r)}</td>${cellH(rowL)}<td style="font-weight:700;">${pct(rowL.length,L.length)}</td></tr>`; }).join('')
       + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td>${cellH(L,true)}<td><b>100.0%</b></td></tr>` + note.replace(`colspan="${regKeys.length+2}"`,'colspan="3"')
     : emptyRow(3,'لا توجد بيانات ليدز')}</tbody>`;
+}
+function totCampaignTable(list){
+  const el = document.getElementById('tot-campaign-table');
+  if(!el) return;
+  const groups = new Map();
+  list.forEach(c=>{
+    const k = c.campaign || 'غير محدد';
+    if(!groups.has(k)) groups.set(k, {n:0, paid:0, rev:0, list:[]});
+    const g = groups.get(k); g.n++; g.list.push(c); if(c.paid) g.paid++; g.rev += c.revenue;
+  });
+  const entries = Array.from(groups.entries()).sort((a,b)=>{
+    if(a[0]==='غير محدد') return 1; if(b[0]==='غير محدد') return -1;
+    return b[1].n-a[1].n;
+  });
+  const T = entries.reduce((a,[,g])=>({n:a.n+g.n, paid:a.paid+g.paid, rev:a.rev+g.rev}), {n:0,paid:0,rev:0});
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  window.__totDrill = window.__totDrill || {};
+  window.__totDrill['tot-campaign-table'] = entries.map(([k,g])=>({title:'الحملة: '+k, list:g.list}));
+  const dc = (i,kind)=>`class="drill-row" style="cursor:pointer;" onclick="totDrill('tot-campaign-table',${i},'${kind}')"`;
+  const row = ([k,g],i)=>`<tr><td>${esc(k)}</td><td ${dc(i,'all')}>${fmtNum(g.n)}</td><td>${pct(g.n,T.n)}</td><td ${dc(i,'paid')}>${fmtNum(g.paid)}</td><td style="font-weight:700;">${pct(g.paid,g.n)}</td><td ${dc(i,'paid')}><b>${fmtMoney(g.rev)}</b></td><td>${pct(g.rev,T.rev)}</td></tr>`;
+  const totalRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td ${dc(-1,'all')}><b>${fmtNum(T.n)}</b></td><td><b>${T.n?'100.0%':'—'}</b></td><td ${dc(-1,'paid')}><b>${fmtNum(T.paid)}</b></td><td><b>${pct(T.paid,T.n)}</b></td><td ${dc(-1,'paid')}><b>${fmtMoney(T.rev)}</b></td><td><b>${T.rev?'100.0%':'—'}</b></td></tr>`;
+  el.innerHTML = `<thead><tr><th>الحملة</th><th>عملاء</th><th>% من العملاء</th><th>دفعوا</th><th>نسبة التحويل</th><th>الفلوس</th><th>% من الفلوس</th></tr></thead>
+    <tbody>${entries.length ? entries.map((e,i)=>row(e,i)).join('')+totalRow : emptyRow(7,'لا توجد بيانات')}</tbody>`;
 }
 function totPivotDrill(i){
   const lst = (window.__totPivotLists||[])[i] || [];
@@ -5911,7 +5904,7 @@ function renderTotal(){
   totGroupTable('tot-lang-table','اللغة', list, c=>c.lang);
   totGroupTable('tot-track-table','التراك', list, c=>c.track);
   totGroupTable('tot-agent-table','الموظف', list, c=>c.agent);
-  renderTotPivots(list);
+  totCampaignTable(list);
   const ageNum = k=> { const m = String(k).match(/\d+/); return m ? parseInt(m[0],10) : 9999; };
   totGroupTable('tot-age-table','الفئة العمرية', list, c=>c.age, {order:e=>e.sort((a,b)=>ageNum(a[0])-ageNum(b[0]))});
   const gLabel = {Male:'ذكور (Male)', Female:'إناث (Female)'};
