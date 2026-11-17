@@ -4540,6 +4540,18 @@ function moneyTemplate(){
       </div>
     </div>
 
+    <div class="panel">
+      <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 💳 العملاء اللي دفعوا — بيدفعوا بأنهي طريقة دفع؟</span><span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('money-payers-method-table','payers_by_method')">⬇️ Excel (الطرق)</button> <button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('money-payers-table','payers_list')">⬇️ Excel (العملاء)</button></span></div>
+      <div class="badge-note">كل عميل دفع (حسب رقم موبايله) في الفترة المختارة، وبأنهي طريقة. العميل اللي دفع بأكتر من طريقة بيتحسب في كل طريقة منهم (فنسبة العملاء ممكن تزيد عن 100%)، لكن <b>% من الإجمالي</b> محسوبة على المبلغ فمجموعها 100%. دوس على أي طريقة تفلتر قايمة العملاء.</div>
+      <div style="overflow:auto;"><table id="money-payers-method-table"></table></div>
+      <div style="display:flex; gap:10px; align-items:center; margin:14px 0 8px;">
+        <b style="font-size:13px;">قايمة العملاء:</b>
+        <select id="money-payers-filter" onchange="renderMoneyPayersList()" style="padding:5px 8px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--text);"></select>
+        <span id="money-payers-count" style="color:var(--text-dim); font-size:12px;"></span>
+      </div>
+      <div style="overflow:auto; max-height:520px;"><table id="money-payers-table"></table></div>
+    </div>
+
     <div class="grid-2">
       <div class="panel">
         <div class="panel-title"><span class="bar"></span> الريتنشن حسب الفرع</div>
@@ -4610,6 +4622,56 @@ function moneyTemplate(){
   `;
 }
 
+/* Paying customers (by phone) x payment method */
+function renderMoneyPayersByMethod(payments){
+  const NA = 'غير محدد';
+  const custs = new Map();
+  payments.filter(p=>p.amount>0).forEach(p=>{
+    const key = p.phone || ('name:'+(p.studentName||'?'));
+    if(!custs.has(key)) custs.set(key, {name:p.studentName||'—', phone:p.phone||'—', total:0, count:0, methods:new Map(), last:null});
+    const c = custs.get(key), m = (p.method && String(p.method).trim()) || NA;
+    c.total += p.amount; c.count++;
+    if(!c.methods.has(m)) c.methods.set(m, {amount:0, count:0});
+    const mm = c.methods.get(m); mm.amount += p.amount; mm.count++;
+    if(p.date && (!c.last || p.date > c.last)) c.last = p.date;
+    if(p.studentName && c.name==='—') c.name = p.studentName;
+  });
+  const list = Array.from(custs.values());
+  const grand = list.reduce((x,c)=>x+c.total,0);
+  const byMethod = new Map();
+  list.forEach(c=> c.methods.forEach((mm,m)=>{
+    if(!byMethod.has(m)) byMethod.set(m, {customers:0, amount:0, count:0});
+    const g = byMethod.get(m); g.customers++; g.amount += mm.amount; g.count += mm.count;
+  }));
+  const entries = Array.from(byMethod.entries()).sort((a,b)=>b[1].amount-a[1].amount);
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const nCust = list.length, nPay = list.reduce((x,c)=>x+c.count,0);
+  window.__moneyPayers = {list, grand, methods: entries.map(e=>e[0])};
+  document.getElementById('money-payers-method-table').innerHTML = `
+    <thead><tr><th>طريقة الدفع</th><th>عدد العملاء</th><th>% من العملاء الدافعين</th><th>عدد الدفعات</th><th>المبلغ</th><th>% من الإجمالي</th></tr></thead>
+    <tbody>${entries.length ? entries.map(([m,g],i)=>`<tr class="drill-row" style="cursor:pointer;" onclick="setMoneyPayersFilter(${i})"><td>${esc(m)}</td><td>${fmtNum(g.customers)}</td><td>${pct(g.customers,nCust)}</td><td>${fmtNum(g.count)}</td><td><b>${fmtMoney(g.amount)}</b></td><td style="font-weight:700; color:var(--green);">${pct(g.amount,grand)}</td></tr>`).join('')
+      + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(nCust)}</b> <span style="color:var(--text-dim); font-size:11px;">(عميل مرة واحدة)</span></td><td></td><td><b>${fmtNum(nPay)}</b></td><td><b>${fmtMoney(grand)}</b></td><td><b>100.0%</b></td></tr>` : emptyRow(6,'لا توجد بيانات')}</tbody>`;
+  const sel = document.getElementById('money-payers-filter');
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">كل الطرق</option>` + entries.map(([m],i)=>`<option value="${i}">${esc(m)}</option>`).join('');
+  if(prev && entries[+prev]) sel.value = prev;
+  renderMoneyPayersList();
+}
+function setMoneyPayersFilter(i){ document.getElementById('money-payers-filter').value = String(i); renderMoneyPayersList(); }
+function renderMoneyPayersList(){
+  const D = window.__moneyPayers; if(!D) return;
+  const v = document.getElementById('money-payers-filter').value;
+  const m = v==='' ? null : D.methods[+v];
+  const fmtD = d=> d ? d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') : '—';
+  const rows = D.list.filter(c=> !m || c.methods.has(m)).sort((a,b)=>b.total-a.total);
+  document.getElementById('money-payers-count').textContent = `${fmtNum(rows.length)} عميل`;
+  const tot = rows.reduce((x,c)=>x+(m ? c.methods.get(m).amount : c.total),0);
+  document.getElementById('money-payers-table').innerHTML = `
+    <thead><tr><th>#</th><th>الاسم</th><th>الموبايل</th><th>طرق الدفع (المبلغ)</th><th>عدد الدفعات</th><th>${m ? 'المبلغ بالطريقة دي' : 'إجمالي ما دفعه'}</th><th>% من الإجمالي</th><th>آخر دفعة</th></tr></thead>
+    <tbody>${rows.length ? rows.map((c,i)=>{ const amt = m ? c.methods.get(m).amount : c.total;
+      return `<tr><td>${i+1}</td><td>${esc(c.name)}</td><td>${esc(c.phone)}</td><td style="font-size:11.5px; text-align:right;">${Array.from(c.methods.entries()).sort((a,b)=>b[1].amount-a[1].amount).map(([k,x])=>`${esc(k)}: ${fmtMoney(x.amount)}`).join(' · ')}</td><td>${fmtNum(c.count)}</td><td><b>${fmtMoney(amt)}</b></td><td>${D.grand ? fmtPct(amt/D.grand*100) : '—'}</td><td>${fmtD(c.last)}</td></tr>`; }).join('')
+      + `<tr style="border-top:2px solid var(--border);"><td></td><td><b>الإجمالي</b></td><td></td><td></td><td></td><td><b>${fmtMoney(tot)}</b></td><td><b>${D.grand ? fmtPct(tot/D.grand*100) : '—'}</b></td><td></td></tr>` : emptyRow(8,'لا يوجد عملاء')}</tbody>`;
+}
 function renderMoney(){
   const {payments} = window.DATA;
   const total = payments.reduce((s,p)=>s+p.amount,0);
@@ -4670,6 +4732,8 @@ function renderMoney(){
       <thead><tr><th>طريقة الدفع</th><th>المبلغ</th><th>% من الإجمالي</th><th>عدد الدفعات</th><th>متوسط الدفعة</th></tr></thead>
       <tbody>${rows ? rows+totalRow : emptyRow(5,'لا توجد بيانات')}</tbody>`;
   })();
+
+  renderMoneyPayersByMethod(payments);
 
   // Retention by branch
   const branches = Array.from(new Set(retentionPay.map(p=>p.location).filter(Boolean)));
