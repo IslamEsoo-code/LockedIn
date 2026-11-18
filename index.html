@@ -5733,11 +5733,11 @@ function totPivotDrill(i){
    - "no prior contact" = no Received/Leads call on/before the visit day
 ========================================================= */
 function visitorsList(){
+  /* Registered = customers marked "Registered" in the Received / Leads sheets.
+     One customer = one phone cluster; date = his earliest "Registered" row. */
   const F = window.DATA_FULL;
   const isReg = c=> String(c.regStatus||'').trim().toLowerCase()==='registered';
   const groups = new Map();
-  /* Registered = customers whose status in the Received / Leads sheets is "Registered".
-     One customer = one phone cluster; registration date = his earliest "Registered" row. */
   (F.received||[]).concat(F.leads||[]).forEach(c=>{
     if(!isReg(c) || !c.datetime) return;
     const ph = c.mobile1 || c.mobile2; if(!ph) return;
@@ -5753,17 +5753,49 @@ function visitorsList(){
     const dayStart = new Date(st.datetime.getFullYear(), st.datetime.getMonth(), st.datetime.getDate());
     const dayEnd = new Date(dayStart.getTime() + 86400000);
     const calls = new Set();
-    // earlier contacts = calls on/before the registration day, not counting the "Registered" rows themselves
     pl.forEach(a=> (F.callIndex.get(a)||[]).forEach(c=>{ if(c.datetime && c.datetime < dayEnd && !isReg(c)) calls.add(c); }));
     const callArr = Array.from(calls).sort((a,b)=>a.datetime-b.datetime);
     const firstCall = callArr[0] || null;
     const startDay = (firstCall && firstCall.datetime < dayStart) ? new Date(firstCall.datetime.getFullYear(), firstCall.datetime.getMonth(), firstCall.datetime.getDate()) : dayStart;
     const pays = corePaymentsOfPhones(pl).filter(p=> p.date && p.date >= startDay);
     out.push({
-      key, name: st.name||'—', phone: st.mobile1||st.mobile2, date: st.datetime, month: monthKey(st.datetime),
+      key, kind:'registered', name: st.name||'—', phone: st.mobile1||st.mobile2, date: st.datetime, month: monthKey(st.datetime),
       branch: st.branch||'غير محدد', employee: st.agent||'—', track: st.track||'—', referal: st.source||'غير محدد',
-      channel: st.channel,
-      contacted: callArr.length>0, callsBefore: callArr.length, firstCall,
+      lang: classifyCourse(st.course), channel: st.channel,
+      callsBefore: callArr.length, firstCall,
+      paid: pays.length>0, revenue: pays.reduce((x,p)=>x+p.amount,0), pays
+    });
+  });
+  return out.sort((a,b)=>a.date-b.date);
+}
+function organicList(){
+  /* Organic = customer in the Students sheet whose number (and its linked aliases)
+     does NOT appear anywhere in the Received or Leads sheets. */
+  const F = window.DATA_FULL;
+  const callSet = new Set();
+  (F.received||[]).concat(F.leads||[]).forEach(c=>{ [c.mobile1, c.mobile2].forEach(ph=>{ if(ph) callSet.add(ph); }); });
+  const groups = new Map();
+  (F.students||[]).forEach(st=>{
+    if(!st.date) return;
+    const own = [st.mobile1, st.mobile2].filter(Boolean); if(!own.length) return;
+    const all = new Set(); own.forEach(ph=> F.resolveAliases(ph).forEach(a=>all.add(a)));
+    if(Array.from(all).some(a=>callSet.has(a))) return;       // has a call record -> not Organic
+    const key = Array.from(all).sort()[0];
+    const cur = groups.get(key);
+    if(!cur || st.date < cur.date) groups.set(key, st);
+  });
+  const out = [];
+  groups.forEach((st,key)=>{
+    const phones = new Set();
+    [st.mobile1, st.mobile2].forEach(ph=>{ if(ph) F.resolveAliases(ph).forEach(a=>phones.add(a)); });
+    const pl = Array.from(phones);
+    const dayStart = new Date(st.date.getFullYear(), st.date.getMonth(), st.date.getDate());
+    const pays = corePaymentsOfPhones(pl).filter(p=> p.date && p.date >= dayStart);
+    out.push({
+      key, kind:'organic', name: st.name||'—', phone: st.mobile1||st.mobile2, date: st.date, month: monthKey(st.date),
+      branch: st.location||'غير محدد', employee: st.employee||'—', track: st.track||'—', referal: st.referal||'غير محدد',
+      lang: st.track, channel: 'Students',
+      callsBefore: 0, firstCall: null,
       paid: pays.length>0, revenue: pays.reduce((x,p)=>x+p.amount,0), pays
     });
   });
@@ -5775,25 +5807,25 @@ function visitorsTemplate(){
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> ${title}</span>${xl(id,name)}</div>
       ${extra||''}<div style="overflow:auto; max-height:480px;"><table id="${id}"></table></div></div>`;
   return `
-    ${pageHeader('Registered الفروع', 'عدد الـ Registered كل شهر وبيزيد ولا بيقل، ومين فيهم Organic (ماكانش ليه أي تواصل مع السيلز قبل ما يتسجل)')}
+    ${pageHeader('Registered الفروع', 'عدد الـ Registered والـ Organic كل شهر وبيزيد ولا بيقل')}
     <div class="panel"><div class="badge-note" style="line-height:1.9;">
       <b>Registered</b> = عميل حالته <b>Registered</b> في شيت <b>Received</b> أو <b>Leads</b>، بيتعد مرة واحدة (برقم موبايله) في شهر <u>أول سطر Registered</u> ليه. &nbsp;•&nbsp;
-      <b>ليه تواصل قبل كده</b> = عنده مكالمة تانية (غير سطر الـ Registered نفسه) في Received أو Leads في يوم التسجيل أو قبله. <b>Organic</b> = مفيش له أي مكالمة لحد يوم تسجيله (اتسجل لوحده). &nbsp;•&nbsp;
+      <b>Organic</b> = عميل موجود في شيت <b>Students</b> و<u>رقمه مش موجود لا في Leads ولا في Received</u>، بيتعد مرة واحدة في شهر <u>أول سجل</u> ليه في Students. الاتنين مجموعتين منفصلتين. &nbsp;•&nbsp;
       <b>دفع / الكونفيرجن</b> = عنده دفعة عميل جديد (New Comer) بتاريخ أول تواصل ليه (أو يوم التسجيل لو مفيش تواصل) أو بعده. &nbsp;•&nbsp;
       التغيير = مقارنة بالشهر اللي قبله، والشهر الجاري لسه ما خلصش فمقارنته مش نهائية. التقرير على كل البيانات (مش متأثر بفلتر الشهر). &nbsp;•&nbsp; 👆 دوس على أي رقم تشوف العملاء.
     </div></div>
     <div class="kpi-grid" id="vis-kpis"></div>
     <div class="panel">
-      <div class="panel-title"><span class="bar"></span> Registered الفروع كل شهر (ليه تواصل / Organic)</div>
+      <div class="panel-title"><span class="bar"></span> Registered و Organic كل شهر</div>
       <div class="chart-wrap"><canvas id="vis-chart"></canvas></div>
     </div>
     ${panel('📈 تقرير الـ Registered الشهري', 'vis-month-table', 'branch_visitors_monthly')}
     <div class="panel" style="margin-top:0;"><div class="panel-title"><span class="bar"></span> 🚶 Organic Customers</div>
-      <div class="badge-note">العميل اللي ملهوش ولا مكالمة في Received أو Leads لحد يوم تسجيله. بيوضح العدد كل شهر وبيزيد ولا بيقل، ونسبتهم من كل الـ Registered، وكونفيرجنهم.</div></div>
-    ${panel('🚶 Organic — شهر بشهر', 'vis-nocontact-table', 'visitors_no_prior_contact')}
+      <div class="badge-note">العميل اللي في شيت Students ورقمه مش موجود في Received ولا Leads. بيوضح العدد كل شهر وبيزيد ولا بيقل، وكونفيرجنهم.</div></div>
+    ${panel('🚶 Organic — شهر بشهر', 'vis-nocontact-table', 'visitors_organic_monthly')}
     <div class="grid-2">
-      ${panel('🏢 Organic — حسب الفرع', 'vis-nc-branch-table', 'visitors_no_contact_by_branch')}
-      ${panel('🧲 Organic — حسب المصدر (Referal)', 'vis-nc-ref-table', 'visitors_no_contact_by_referal')}
+      ${panel('🏢 Organic — حسب الفرع', 'vis-nc-branch-table', 'visitors_organic_by_branch')}
+      ${panel('🧲 Organic — حسب المصدر (Referal)', 'vis-nc-ref-table', 'visitors_organic_by_referal')}
     </div>`;
 }
 function openVisitorList(i){
@@ -5810,14 +5842,14 @@ function openVisitorList(i){
 }
 function renderVisitors(){
   if(!document.getElementById('vis-kpis')) return;
-  const all = visitorsList();
+  const reg_ = visitorsList(), org_ = organicList();
   window.__visLists = [];
   const reg = (title, list)=>{ window.__visLists.push({title, list}); return window.__visLists.length-1; };
   const num = (title, list, bold)=> list.length ? `<span class="drill-row" style="cursor:pointer;" onclick="openVisitorList(${reg(title,list)})">${bold?'<b>':''}${fmtNum(list.length)}${bold?'</b>':''}</span>` : '0';
   const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
   const clk = (title, list, html)=> (list && list.length) ? `<span class="drill-row" style="cursor:pointer;" onclick="openVisitorList(${reg(title,list)})">${html}</span>` : html;
   const curMonth = monthKey(new Date());
-  const months = Array.from(new Set(all.map(v=>v.month))).sort();
+  const months = Array.from(new Set(reg_.concat(org_).map(v=>v.month))).sort();
   const chg = (cur, prev, lst, ttl)=>{
     if(prev===undefined || prev===null) return '<td>—</td><td>—</td>';
     const d = cur-prev, p = prev ? d/prev*100 : null;
@@ -5825,64 +5857,58 @@ function renderVisitors(){
     const arrow = d>0 ? '▲' : (d<0 ? '▼' : '■');
     return `<td style="color:${col}; font-weight:700;">${clk(ttl,lst,`${arrow} ${d>0?'+':''}${fmtNum(d)}`)}</td><td style="color:${col}; font-weight:700;">${clk(ttl,lst,p===null?'—':(d>0?'+':'')+fmtPct(p))}</td>`;
   };
-  const rowsFor = months.map(m=>{
-    const L = all.filter(v=>v.month===m);
-    return {m, L, C: L.filter(v=>v.contacted), N: L.filter(v=>!v.contacted)};
-  });
+  const rowsFor = months.map(m=>({m, R: reg_.filter(v=>v.month===m), O: org_.filter(v=>v.month===m)}));
   const sumRev = l=> l.reduce((x,v)=>x+v.revenue,0);
   const paidOf = l=> l.filter(v=>v.paid);
+  const avgPay = l=> { const p=paidOf(l); return p.length ? fmtMoney(Math.round(sumRev(p)/p.length)) : '—'; };
   const flag = m=> m===curMonth ? ' <span style="color:var(--text-dim); font-size:10.5px;">(لسه شغال)</span>' : '';
 
   // KPIs
+  const rPaid = paidOf(reg_), oPaid = paidOf(org_);
   const done = rowsFor.filter(r=>r.m!==curMonth);
   const lastDone = done[done.length-1], prevDone = done[done.length-2];
-  const tN = all.filter(v=>!v.contacted), tPaid = paidOf(all), tNPaid = paidOf(tN);
-  const trendTxt = (lastDone && prevDone) ? (()=>{ const d=lastDone.L.length-prevDone.L.length, p=prevDone.L.length? d/prevDone.L.length*100:0; return `${d>0?'▲ +':(d<0?'▼ ':'■ ')}${fmtPct(Math.abs(p))}`; })() : '—';
+  const trendTxt = (lastDone && prevDone) ? (()=>{ const d=lastDone.R.length-prevDone.R.length, p=prevDone.R.length? d/prevDone.R.length*100:0; return `${d>0?'▲ +':(d<0?'▼ ':'■ ')}${fmtPct(Math.abs(p))}`; })() : '—';
   document.getElementById('vis-kpis').innerHTML = [
-    {icon:'🏢', color:'#7c5cff', value:fmtNum(all.length), label:'إجمالي الـ Registered (من غير تكرار)', list:all, t:'كل الـ Registered'},
-    {icon:'📅', color:'#06b6d4', value: months.length? fmtNum(Math.round(all.length/months.length)) : '—', label:'متوسط الـ Registered في الشهر', list:all, t:'كل الـ Registered'},
-    {icon:'📈', color:'#10b981', value: trendTxt, label: lastDone&&prevDone ? `${monthLabel(lastDone.m)} مقابل ${monthLabel(prevDone.m)}` : 'آخر شهر مقابل اللي قبله', list: lastDone? lastDone.L : [], t: lastDone? monthLabel(lastDone.m)+' — كل الـ Registered':''},
-    {icon:'🚶', color:'#f59e0b', value: fmtNum(tN.length), label:`Organic (${pct(tN.length, all.length)} من الـ Registered)`, list:tN, t:'Organic'},
-    {icon:'🎯', color:'#16a34a', value: pct(tPaid.length, all.length), label:`كونفيرجن كل الـ Registered (${fmtNum(tPaid.length)} دفعوا)`, list:tPaid, t:'دفعوا'},
-    {icon:'🧭', color:'#ec4899', value: pct(tNPaid.length, tN.length), label:`كونفيرجن اللي Organic (${fmtNum(tNPaid.length)} من ${fmtNum(tN.length)})`, list:tNPaid, t:'Organic ودفعوا'}
+    {icon:'🏢', color:'#7c5cff', value:fmtNum(reg_.length), label:'إجمالي الـ Registered (من غير تكرار)', list:reg_, t:'كل الـ Registered'},
+    {icon:'📅', color:'#06b6d4', value: months.length? fmtNum(Math.round(reg_.length/months.length)) : '—', label:'متوسط الـ Registered في الشهر', list:reg_, t:'كل الـ Registered'},
+    {icon:'📈', color:'#10b981', value: trendTxt, label: lastDone&&prevDone ? `Registered: ${monthLabel(lastDone.m)} مقابل ${monthLabel(prevDone.m)}` : 'آخر شهر مقابل اللي قبله', list: lastDone? lastDone.R : [], t: lastDone? monthLabel(lastDone.m)+' — كل الـ Registered':''},
+    {icon:'🎯', color:'#16a34a', value: pct(rPaid.length, reg_.length), label:`كونفيرجن الـ Registered (${fmtNum(rPaid.length)} دفعوا)`, list:rPaid, t:'Registered ودفعوا'},
+    {icon:'🚶', color:'#f59e0b', value: fmtNum(org_.length), label:'إجمالي الـ Organic (Students ومش في Leads / Received)', list:org_, t:'كل الـ Organic'},
+    {icon:'🧭', color:'#ec4899', value: pct(oPaid.length, org_.length), label:`كونفيرجن الـ Organic (${fmtNum(oPaid.length)} من ${fmtNum(org_.length)})`, list:oPaid, t:'Organic ودفعوا'}
   ].map(k=>`<div class="kpi-card"${k.list&&k.list.length?` style="cursor:pointer;" onclick="openVisitorList(${reg(k.t,k.list)})"`:''}><div class="kpi-top"><div class="kpi-icon" style="background:${k.color}33;">${k.icon}</div><div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div></div></div>`).join('');
 
   // chart
   makeChart('vis-chart', {
     type:'bar',
     data:{ labels: months.map(monthLabel), datasets:[
-      {label:'ليه تواصل قبل كده', data: rowsFor.map(r=>r.C.length), backgroundColor:'#7c5cff', stack:'s'},
-      {label:'Organic', data: rowsFor.map(r=>r.N.length), backgroundColor:'#f59e0b', stack:'s'}
+      {label:'Registered', data: rowsFor.map(r=>r.R.length), backgroundColor:'#7c5cff'},
+      {label:'Organic', data: rowsFor.map(r=>r.O.length), backgroundColor:'#f59e0b'}
     ]},
-    options:{ plugins:{legend:{position:'bottom'}}, scales:{ x:{stacked:true, grid:{display:false}}, y:{stacked:true} }, onClick:(ev, els)=>{ if(!els||!els.length) return; const r = rowsFor[els[0].index]; if(!r) return; const isC = els[0].datasetIndex===0; const l = isC ? r.C : r.N; if(l.length) openVisitorList(reg(monthLabel(r.m)+(isC?' — ليه تواصل':' — Organic'), l)); } }
+    options:{ plugins:{legend:{position:'bottom'}}, scales:{ x:{grid:{display:false}}, y:{beginAtZero:true, ticks:{precision:0}} }, onClick:(ev, els)=>{ if(!els||!els.length) return; const r = rowsFor[els[0].index]; if(!r) return; const isR = els[0].datasetIndex===0; const l = isR ? r.R : r.O; if(l.length) openVisitorList(reg(monthLabel(r.m)+(isR?' — Registered':' — Organic'), l)); } }
   });
 
-  // monthly table
-  const T = {L:all, C:all.filter(v=>v.contacted), N:tN};
-  document.getElementById('vis-month-table').innerHTML = `
-    <thead><tr><th>الشهر</th><th>Registered</th><th>التغيير</th><th>% التغيير</th><th>ليه تواصل قبل كده</th><th>Organic</th><th>% Organic</th><th>دفعوا</th><th>الكونفيرجن</th><th>كونفيرجن (ليه تواصل)</th><th>كونفيرجن (Organic)</th><th>الفلوس</th></tr></thead>
-    <tbody>${rowsFor.length ? rowsFor.map((r,i)=>{
-      const prev = i>0 ? rowsFor[i-1].L.length : null;
-      return `<tr><td>${monthLabel(r.m)}${flag(r.m)}</td><td>${num(monthLabel(r.m)+' — كل الـ Registered', r.L, true)}</td>${chg(r.L.length, prev, r.L, monthLabel(r.m)+' — كل الـ Registered')}<td>${num(monthLabel(r.m)+' — ليه تواصل', r.C)}</td><td>${num(monthLabel(r.m)+' — Organic', r.N)}</td><td>${clk(monthLabel(r.m)+' — Organic', r.N, pct(r.N.length, r.L.length))}</td><td>${num(monthLabel(r.m)+' — دفعوا', paidOf(r.L))}</td><td style="font-weight:700; color:var(--green);">${clk(monthLabel(r.m)+' — دفعوا', paidOf(r.L), pct(paidOf(r.L).length, r.L.length))}</td><td>${clk(monthLabel(r.m)+' — ليه تواصل ودفعوا', paidOf(r.C), pct(paidOf(r.C).length, r.C.length))}</td><td>${clk(monthLabel(r.m)+' — Organic ودفعوا', paidOf(r.N), pct(paidOf(r.N).length, r.N.length))}</td><td><b>${clk(monthLabel(r.m)+' — دفعوا', paidOf(r.L), fmtMoney(sumRev(r.L)))}</b></td></tr>`;
-    }).join('') + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td>${num('كل الـ Registered', all, true)}</td><td></td><td></td><td>${num('ليه تواصل', T.C)}</td><td>${num('Organic', T.N)}</td><td><b>${clk('Organic', T.N, pct(T.N.length, all.length))}</b></td><td>${num('دفعوا', tPaid)}</td><td><b>${clk('دفعوا', tPaid, pct(tPaid.length, all.length))}</b></td><td><b>${clk('ليه تواصل ودفعوا', paidOf(T.C), pct(paidOf(T.C).length, T.C.length))}</b></td><td><b>${clk('Organic ودفعوا', tNPaid, pct(tNPaid.length, tN.length))}</b></td><td><b>${clk('دفعوا', tPaid, fmtMoney(sumRev(all)))}</b></td></tr>` : emptyRow(12,'مفيش سجلات في شيت Students')}</tbody>`;
+  // generic monthly table (Registered or Organic)
+  const monthly = (tableId, key, label)=>{
+    const all = key==='R' ? reg_ : org_, paidAll = paidOf(all);
+    document.getElementById(tableId).innerHTML = `
+      <thead><tr><th>الشهر</th><th>${label}</th><th>التغيير</th><th>% التغيير</th><th>دفعوا</th><th>الكونفيرجن</th><th>الفلوس</th><th>متوسط الدفعة</th></tr></thead>
+      <tbody>${rowsFor.length ? rowsFor.map((r,i)=>{
+        const L = r[key], prev = i>0 ? rowsFor[i-1][key].length : null, pd = paidOf(L), ttl = monthLabel(r.m)+' — '+label;
+        return `<tr><td>${monthLabel(r.m)}${flag(r.m)}</td><td>${num(ttl, L, true)}</td>${chg(L.length, prev, L, ttl)}<td>${num(ttl+' ودفعوا', pd)}</td><td style="font-weight:700; color:var(--green);">${clk(ttl+' ودفعوا', pd, pct(pd.length, L.length))}</td><td><b>${clk(ttl+' ودفعوا', pd, fmtMoney(sumRev(L)))}</b></td><td>${avgPay(L)}</td></tr>`;
+      }).join('') + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td>${num('كل الـ '+label, all, true)}</td><td></td><td></td><td>${num(label+' ودفعوا', paidAll)}</td><td><b>${clk(label+' ودفعوا', paidAll, pct(paidAll.length, all.length))}</b></td><td><b>${clk(label+' ودفعوا', paidAll, fmtMoney(sumRev(all)))}</b></td><td>${avgPay(all)}</td></tr>` : emptyRow(8,'لا توجد بيانات')}</tbody>`;
+  };
+  monthly('vis-month-table', 'R', 'Registered');
+  monthly('vis-nocontact-table', 'O', 'Organic');
 
-  // no-contact monthly
-  document.getElementById('vis-nocontact-table').innerHTML = `
-    <thead><tr><th>الشهر</th><th>Organic</th><th>التغيير</th><th>% التغيير</th><th>% من Registered الشهر</th><th>دفعوا</th><th>الكونفيرجن</th><th>الفلوس</th><th>متوسط الدفعة</th></tr></thead>
-    <tbody>${rowsFor.length ? rowsFor.map((r,i)=>{
-      const prev = i>0 ? rowsFor[i-1].N.length : null, pd = paidOf(r.N), rv = sumRev(r.N);
-      return `<tr><td>${monthLabel(r.m)}${flag(r.m)}</td><td>${num(monthLabel(r.m)+' — Organic', r.N, true)}</td>${chg(r.N.length, prev, r.N, monthLabel(r.m)+' — Organic')}<td>${clk(monthLabel(r.m)+' — Organic', r.N, pct(r.N.length, r.L.length))}</td><td>${num(monthLabel(r.m)+' — Organic ودفعوا', pd)}</td><td style="font-weight:700; color:var(--green);">${clk(monthLabel(r.m)+' — Organic ودفعوا', pd, pct(pd.length, r.N.length))}</td><td><b>${clk(monthLabel(r.m)+' — Organic ودفعوا', pd, fmtMoney(rv))}</b></td><td>${clk(monthLabel(r.m)+' — Organic ودفعوا', pd, pd.length? fmtMoney(rv/pd.length):'—')}</td></tr>`;
-    }).join('') + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td>${num('Organic', tN, true)}</td><td></td><td></td><td><b>${clk('Organic', tN, pct(tN.length, all.length))}</b></td><td>${num('Organic ودفعوا', tNPaid)}</td><td><b>${clk('Organic ودفعوا', tNPaid, pct(tNPaid.length, tN.length))}</b></td><td><b>${clk('Organic ودفعوا', tNPaid, fmtMoney(sumRev(tN)))}</b></td><td>${clk('Organic ودفعوا', tNPaid, tNPaid.length? fmtMoney(sumRev(tN)/tNPaid.length):'—')}</td></tr>` : emptyRow(9,'مفيش بيانات')}</tbody>`;
-
-  // no-contact by branch / referal
+  // Organic by branch / referal
   const grp = (keyFn, tableId, label)=>{
     const m = new Map();
-    tN.forEach(v=>{ const k = keyFn(v); if(!m.has(k)) m.set(k,[]); m.get(k).push(v); });
+    org_.forEach(v=>{ const k = keyFn(v); if(!m.has(k)) m.set(k,[]); m.get(k).push(v); });
     const ent = Array.from(m.entries()).sort((a,b)=>b[1].length-a[1].length);
     document.getElementById(tableId).innerHTML = `
       <thead><tr><th>${label}</th><th>Organic</th><th>% من الإجمالي</th><th>دفعوا</th><th>الكونفيرجن</th><th>الفلوس</th></tr></thead>
-      <tbody>${ent.length ? ent.map(([k,l])=>{ const pd=paidOf(l); return `<tr><td>${esc(k)}</td><td>${num(label+': '+k+' — Organic', l)}</td><td>${clk(label+': '+k+' — Organic', l, pct(l.length, tN.length))}</td><td>${num(label+': '+k+' — دفعوا', pd)}</td><td style="font-weight:700;">${clk(label+': '+k+' — دفعوا', pd, pct(pd.length, l.length))}</td><td><b>${clk(label+': '+k+' — دفعوا', pd, fmtMoney(sumRev(l)))}</b></td></tr>`; }).join('')
-        + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${clk('Organic', tN, fmtNum(tN.length))}</b></td><td><b>${clk('Organic', tN, '100.0%')}</b></td><td><b>${clk('Organic ودفعوا', tNPaid, fmtNum(tNPaid.length))}</b></td><td><b>${clk('Organic ودفعوا', tNPaid, pct(tNPaid.length, tN.length))}</b></td><td><b>${clk('Organic ودفعوا', tNPaid, fmtMoney(sumRev(tN)))}</b></td></tr>` : emptyRow(6,'مفيش بيانات')}</tbody>`;
+      <tbody>${ent.length ? ent.map(([k,l])=>{ const pd=paidOf(l); return `<tr><td>${esc(k)}</td><td>${num(label+': '+k+' — Organic', l)}</td><td>${clk(label+': '+k+' — Organic', l, pct(l.length, org_.length))}</td><td>${num(label+': '+k+' — دفعوا', pd)}</td><td style="font-weight:700;">${clk(label+': '+k+' — دفعوا', pd, pct(pd.length, l.length))}</td><td><b>${clk(label+': '+k+' — دفعوا', pd, fmtMoney(sumRev(l)))}</b></td></tr>`; }).join('')
+        + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${clk('Organic', org_, fmtNum(org_.length))}</b></td><td><b>${clk('Organic', org_, '100.0%')}</b></td><td><b>${clk('Organic ودفعوا', oPaid, fmtNum(oPaid.length))}</b></td><td><b>${clk('Organic ودفعوا', oPaid, pct(oPaid.length, org_.length))}</b></td><td><b>${clk('Organic ودفعوا', oPaid, fmtMoney(sumRev(org_)))}</b></td></tr>` : emptyRow(6,'لا توجد بيانات')}</tbody>`;
   };
   grp(v=>v.branch, 'vis-nc-branch-table', 'الفرع');
   grp(v=>v.referal, 'vis-nc-ref-table', 'المصدر');
@@ -6248,6 +6274,13 @@ function cmpCallPass(c){
 }
 function cmpValidCall(c){ return !!c.agent && !isExcludedAgent(c.agent) && !!c.datetime && cmpCallPass(c); }
 
+/* Registered visitors (same definition as the Registered الفروع page) after the comparison's language / employee filters. */
+function cmpVisitors(){
+  const C = window.CMP, F = window.DATA_FULL;
+  if(!window.__cmpVis || window.__cmpVis.F!==F) window.__cmpVis = {F, reg: visitorsList(), org: organicList()};
+  const ok = v=> (C.language==='all' || v.lang===C.language) && (C.employee==='all' || v.employee===C.employee);
+  return {reg: window.__cmpVis.reg.filter(ok), org: window.__cmpVis.org.filter(ok)};
+}
 function cmpStats(from, to){
   const F = window.DATA_FULL, C = window.CMP;
   const inR = d=>{ const k = dayKey(d); return !!k && (!from || k>=from) && (!to || k<=to); };
@@ -6263,6 +6296,9 @@ function cmpStats(from, to){
   const recvUnique = uniqueCustomerCount(recv), leadsUnique = uniqueCustomerCount(leads);
   const recvPaid = uniquePaidCount(recv), leadsPaid = uniquePaidCount(leads);
   const leadsAnswered = leads.filter(c=>leadResultIs(c,'Answer')).length;
+  const VV = cmpVisitors();
+  const vis = VV.reg.filter(v=> inR(v.date)), visOrg = VV.org.filter(v=> inR(v.date));
+  const visPaid = vis.filter(v=>v.paid), visOrgPaid = visOrg.filter(v=>v.paid);
   const students = F.students.filter(s=> s.date && inR(s.date)
     && (C.language==='all' || s.track===C.language)
     && (C.employee==='all' || s.employee===C.employee)).length;
@@ -6295,7 +6331,12 @@ function cmpStats(from, to){
     totalRecords: recv.length + leads.length,
     totalUnique: uniqueCustomerCount(recv.concat(leads)),
     avgDailyCalls: (recv.length + leads.length)/days,
-    students
+    students,
+    visTotal: vis.length, visPaid: visPaid.length, visConv: vis.length ? visPaid.length/vis.length*100 : 0,
+    visRevenue: visPaid.reduce((s,v)=>s+v.revenue,0),
+    visOrganic: visOrg.length, visOrganicPaid: visOrgPaid.length,
+    visOrganicConv: visOrg.length ? visOrgPaid.length/visOrg.length*100 : 0,
+    visOrganicRevenue: visOrgPaid.reduce((s,v)=>s+v.revenue,0)
   };
 }
 
@@ -6464,7 +6505,7 @@ function cmpDrawDaily(canvasId, kind, isMoney){
 function cmpMonthlyRows(){
   const F = window.DATA_FULL;
   const months = getAllAvailableMonths(F);
-  const map = new Map(months.map(m=>[m, {m, rev:0, recv:0, leads:0, none:0, newRev:0, callsR:0, callsL:0, students:0}]));
+  const map = new Map(months.map(m=>[m, {m, rev:0, recv:0, leads:0, none:0, newRev:0, callsR:0, callsL:0, students:0, reg:0, org:0}]));
   F.payments.forEach(p=>{
     if(!p.month || !cmpPayPass(p)) return;
     const r = map.get(p.month); if(!r) return;
@@ -6482,6 +6523,9 @@ function cmpMonthlyRows(){
     if(window.CMP.employee!=='all' && s.employee!==window.CMP.employee) return;
     const r = map.get(monthKey(s.date)); if(r) r.students++;
   });
+  const VV = cmpVisitors();
+  VV.reg.forEach(v=>{ const r = map.get(v.month); if(r) r.reg++; });
+  VV.org.forEach(v=>{ const r = map.get(v.month); if(r) r.org++; });
   return Array.from(map.values()).sort((x,y)=> x.m<y.m ? -1 : 1);
 }
 
@@ -6560,6 +6604,12 @@ function renderCompare(){
       ['تم الرد (Answer)','leadsAnswered','num'], ['نسبة الرد','leadsAnswerRate','pct'],
       ['مسجلين (زاروا الفرع)','leadsRegistered','num'], ['دافعين فعلاً (شيت الفلوس)','leadsPaid','num'],
       ['نسبة التحويل','leadsConv','pct']]},
+    {title:'🏢 Registered الفروع (حالة Registered في Received + Leads)', rows:[
+      ['Registered (عملاء من غير تكرار)','visTotal','num'], ['دفعوا (Registered)','visPaid','num'],
+      ['كونفيرجن الـ Registered','visConv','pct'], ['فلوس الـ Registered','visRevenue','money']]},
+    {title:'🚶 Organic (في Students ومش في Leads / Received)', rows:[
+      ['Organic (عملاء من غير تكرار)','visOrganic','num'], ['دفعوا (Organic)','visOrganicPaid','num'],
+      ['كونفيرجن الـ Organic','visOrganicConv','pct'], ['فلوس الـ Organic','visOrganicRevenue','money']]},
     {title:'📊 إجمالي النشاط', rows:[
       ['إجمالي المكالمات (Received + Leads)','totalRecords','num'], ['عملاء فريدين (الإجمالي)','totalUnique','num'],
       ['متوسط المكالمات اليومي','avgDailyCalls','num'], ['سجلات طلاب جديدة','students','num']]},
@@ -6609,11 +6659,11 @@ function renderCompare(){
     const calls = r.callsR + r.callsL, pcalls = p ? p.callsR + p.callsL : 0;
     return `<tr><td><b>${monthLabel(r.m)}</b></td><td><b>${fmtMoney(r.rev)}</b></td>${chg(r.rev, p ? p.rev : 0)}
       <td>${fmtMoney(r.recv)}</td><td>${fmtMoney(r.leads)}</td><td>${fmtMoney(r.none)}</td><td>${fmtMoney(r.newRev)}</td>
-      <td>${fmtNum(r.callsR)}</td><td>${fmtNum(r.callsL)}</td><td><b>${fmtNum(calls)}</b></td>${chg(calls, pcalls)}<td>${fmtNum(r.students)}</td></tr>`;
+      <td>${fmtNum(r.callsR)}</td><td>${fmtNum(r.callsL)}</td><td><b>${fmtNum(calls)}</b></td>${chg(calls, pcalls)}<td>${fmtNum(r.students)}</td><td><b>${fmtNum(r.reg)}</b></td><td>${fmtNum(r.org)}</td></tr>`;
   }).reverse().join('');
   document.getElementById('cmp-monthly-table').innerHTML = `
-    <thead><tr><th>الشهر</th><th>إجمالي الإيراد</th><th>تغير عن الشهر السابق</th><th>إيراد Received</th><th>إيراد Leads</th><th>غير منسوب</th><th>إيراد عملاء جدد</th><th>مكالمات Received</th><th>مكالمات Leads</th><th>إجمالي المكالمات</th><th>تغير المكالمات</th><th>طلاب جدد</th></tr></thead>
-    <tbody>${body || emptyRow(12,'لا توجد بيانات')}</tbody>`;
+    <thead><tr><th>الشهر</th><th>إجمالي الإيراد</th><th>تغير عن الشهر السابق</th><th>إيراد Received</th><th>إيراد Leads</th><th>غير منسوب</th><th>إيراد عملاء جدد</th><th>مكالمات Received</th><th>مكالمات Leads</th><th>إجمالي المكالمات</th><th>تغير المكالمات</th><th>طلاب جدد</th><th>Registered</th><th>Organic</th></tr></thead>
+    <tbody>${body || emptyRow(14,'لا توجد بيانات')}</tbody>`;
 }
 </script>
 </body>
