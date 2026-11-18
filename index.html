@@ -2422,7 +2422,7 @@ function callsTemplate(){
 
     <div class="panel">
       <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📣 الحملة (Campaign)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-campaign-table','campaign_breakdown_leads')">⬇️ Excel</button></div>
-      <div class="badge-note">عمود Campaign في شيت Leads — نسبة التحويل محسوبة من الفلوس الفعلي</div>
+      <div class="badge-note">عمود Campaign في شيت Leads — نسبة التحويل محسوبة من الفلوس الفعلي. نسب الرد / No Answer / Wrong Number من عدد ليدز الحملة (آخر مكالمة لكل عميل)، و<b>تحويل على الرد</b> = اللي دفعوا ÷ اللي ردّوا (Answer) بس.</div>
       <div style="overflow:auto; max-height:320px;"><table id="leads-campaign-table"></table></div>
     </div>
 
@@ -3787,21 +3787,26 @@ function renderLeadCampaignReason(channel){
   const groups = new Map();
   leads.forEach(c=>{
     const k = c.campaign || 'غير محدد';
-    if(!groups.has(k)) groups.set(k, {total:0, paid:0, rev:0});
+    if(!groups.has(k)) groups.set(k, {total:0, paid:0, rev:0, ans:0, noAns:0, wrong:0, paidAns:0});
     const g = groups.get(k);
     g.total++;
-    if(customerHasCorePayment(c)){ g.paid++; g.rev += leadOffersTotal(c); }
+    const paidC = customerHasCorePayment(c);
+    if(paidC){ g.paid++; g.rev += leadOffersTotal(c); }
+    if(leadResultIs(c,'Answer')){ g.ans++; if(paidC) g.paidAns++; }
+    else if(leadResultIs(c,'No Answer')) g.noAns++;
+    else if(leadResultIs(c,'Wrong Number')) g.wrong++;
   });
   const filled = leads.filter(c=>c.campaign).length;
   const entries = Array.from(groups.entries()).sort((a,b)=>{
     if(a[0]==='غير محدد') return 1; if(b[0]==='غير محدد') return -1;
     return b[1].total-a[1].total;
   });
-  const T = entries.reduce((a,[,g])=>({total:a.total+g.total, paid:a.paid+g.paid, rev:a.rev+g.rev}), {total:0,paid:0,rev:0});
-  const note = filled===0 ? `<tr><td colspan="6" style="color:var(--text-dim); font-size:12px;">العمود لسه فاضي في الشيت — هيظهر هنا أول ما يتملى</td></tr>` : '';
+  const T = entries.reduce((a,[,g])=>({total:a.total+g.total, paid:a.paid+g.paid, rev:a.rev+g.rev, ans:a.ans+g.ans, noAns:a.noAns+g.noAns, wrong:a.wrong+g.wrong, paidAns:a.paidAns+g.paidAns}), {total:0,paid:0,rev:0,ans:0,noAns:0,wrong:0,paidAns:0});
+  const pc = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const note = filled===0 ? `<tr><td colspan="10" style="color:var(--text-dim); font-size:12px;">العمود لسه فاضي في الشيت — هيظهر هنا أول ما يتملى</td></tr>` : '';
   el.innerHTML = `
-    <thead><tr><th>الحملة</th><th>عدد</th><th>% من الإجمالي</th><th>دفعوا</th><th>نسبة التحويل</th><th>إجمالي العروض</th></tr></thead>
-    <tbody>${note}${entries.map(([k,g])=>`<tr class="drill-row" onclick='${drillFn}("campaign", ${attrSafe(k)}, ${attrSafe('الحملة: '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td>${fmtPct(total? g.total/total*100:0)}</td><td>${fmtNum(g.paid)}</td><td style="font-weight:700;">${fmtPct(g.total? g.paid/g.total*100:0)}</td><td><b>${fmtMoney(g.rev)}</b></td></tr>`).join('') + (entries.length ? `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(T.total)}</b></td><td><b>100.0%</b></td><td><b>${fmtNum(T.paid)}</b></td><td><b>${fmtPct(T.total? T.paid/T.total*100:0)}</b></td><td><b>${fmtMoney(T.rev)}</b></td></tr>` : emptyRow(6,'لا توجد بيانات'))}</tbody>`;
+    <thead><tr><th>الحملة</th><th>عدد</th><th>% من الإجمالي</th><th>نسبة الرد (Answer)</th><th>نسبة No Answer</th><th>نسبة Wrong Number</th><th>دفعوا</th><th>نسبة التحويل</th><th>تحويل على الرد</th><th>إجمالي العروض</th></tr></thead>
+    <tbody>${note}${entries.map(([k,g])=>`<tr class="drill-row" onclick='${drillFn}("campaign", ${attrSafe(k)}, ${attrSafe('الحملة: '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td>${fmtPct(total? g.total/total*100:0)}</td><td style="font-weight:700;">${pc(g.ans,g.total)}</td><td style="font-weight:700; color:var(--red);">${pc(g.noAns,g.total)}</td><td style="font-weight:700; color:var(--orange,#f59e0b);">${pc(g.wrong,g.total)}</td><td>${fmtNum(g.paid)}</td><td style="font-weight:700;">${fmtPct(g.total? g.paid/g.total*100:0)}</td><td style="font-weight:700; color:var(--green);">${pc(g.paidAns,g.ans)}</td><td><b>${fmtMoney(g.rev)}</b></td></tr>`).join('') + (entries.length ? `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(T.total)}</b></td><td><b>100.0%</b></td><td><b>${pc(T.ans,T.total)}</b></td><td><b>${pc(T.noAns,T.total)}</b></td><td><b>${pc(T.wrong,T.total)}</b></td><td><b>${fmtNum(T.paid)}</b></td><td><b>${fmtPct(T.total? T.paid/T.total*100:0)}</b></td><td><b>${pc(T.paidAns,T.ans)}</b></td><td><b>${fmtMoney(T.rev)}</b></td></tr>` : emptyRow(10,'لا توجد بيانات'))}</tbody>`;
 }
 
 function renderLeadJobTable(channel){
@@ -5572,6 +5577,7 @@ function totalCustomers(){
       reg: g.leadLast ? (String(g.leadLast.regStatus||'').trim() || 'غير محدد') : null,
       answered: !!(g.leadLast && leadResultIs(g.leadLast,'Answer')),
       noAns: !!(g.leadLast && leadResultIs(g.leadLast,'No Answer')),
+      wrong: !!(g.leadLast && leadResultIs(g.leadLast,'Wrong Number')),
       name: g.first.name || g.last.name || '—', phone: callPhones(g.first)[0] || callPhones(g.last)[0] || '—',
       allPays, after,
       date: g.first.datetime,
@@ -5636,7 +5642,7 @@ function totDrill(tableId, i, kind){
   const D = (window.__totDrill||{})[tableId] || [];
   const list = i<0 ? [].concat(...D.map(x=>x.list)) : (D[i] ? D[i].list : []);
   const title = i<0 ? 'الإجمالي' : (D[i] ? D[i].title : '');
-  openTotCustomers(title + ({paid:' — اللي دفعوا', ans:' — اللي ردّوا (Answer)', noans:' — No Answer'}[kind]||' — كل العملاء'), kind==='paid' ? list.filter(c=>c.paid) : (kind==='ans' ? list.filter(c=>c.answered) : (kind==='noans' ? list.filter(c=>c.noAns) : list)));
+  openTotCustomers(title + ({paid:' — اللي دفعوا', ans:' — اللي ردّوا (Answer)', noans:' — No Answer', wrong:' — Wrong Number'}[kind]||' — كل العملاء'), kind==='paid' ? list.filter(c=>c.paid) : (kind==='ans' ? list.filter(c=>c.answered) : (kind==='noans' ? list.filter(c=>c.noAns) : (kind==='wrong' ? list.filter(c=>c.wrong) : list))));
 }
 function openTotCustomers(title, list){
   const rows = list.slice().sort((a,b)=> (b.revenue-a.revenue) || (a.date-b.date));
@@ -5705,22 +5711,22 @@ function totCampaignTable(list){
   const groups = new Map();
   list.forEach(c=>{
     const k = c.campaign || 'غير محدد';
-    if(!groups.has(k)) groups.set(k, {n:0, paid:0, rev:0, list:[]});
-    const g = groups.get(k); g.n++; g.list.push(c); if(c.paid) g.paid++; g.rev += c.offers;
+    if(!groups.has(k)) groups.set(k, {n:0, paid:0, rev:0, ans:0, noAns:0, wrong:0, paidAns:0, list:[]});
+    const g = groups.get(k); g.n++; g.list.push(c); if(c.paid) g.paid++; g.rev += c.offers; if(c.answered){ g.ans++; if(c.paid) g.paidAns++; } if(c.noAns) g.noAns++; if(c.wrong) g.wrong++;
   });
   const entries = Array.from(groups.entries()).sort((a,b)=>{
     if(a[0]==='غير محدد') return 1; if(b[0]==='غير محدد') return -1;
     return b[1].n-a[1].n;
   });
-  const T = entries.reduce((a,[,g])=>({n:a.n+g.n, paid:a.paid+g.paid, rev:a.rev+g.rev}), {n:0,paid:0,rev:0});
+  const T = entries.reduce((a,[,g])=>({n:a.n+g.n, paid:a.paid+g.paid, rev:a.rev+g.rev, ans:a.ans+g.ans, noAns:a.noAns+g.noAns, wrong:a.wrong+g.wrong, paidAns:a.paidAns+g.paidAns}), {n:0,paid:0,rev:0,ans:0,noAns:0,wrong:0,paidAns:0});
   const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
   window.__totDrill = window.__totDrill || {};
   window.__totDrill['tot-campaign-table'] = entries.map(([k,g])=>({title:'الحملة: '+k, list:g.list}));
   const dc = (i,kind)=>`class="drill-row" style="cursor:pointer;" onclick="totDrill('tot-campaign-table',${i},'${kind}')"`;
-  const row = ([k,g],i)=>`<tr><td>${esc(k)}</td><td ${dc(i,'all')}>${fmtNum(g.n)}</td><td>${pct(g.n,T.n)}</td><td ${dc(i,'paid')}>${fmtNum(g.paid)}</td><td style="font-weight:700;">${pct(g.paid,g.n)}</td><td ${dc(i,'paid')}><b>${fmtMoney(g.rev)}</b></td><td>${pct(g.rev,T.rev)}</td></tr>`;
-  const totalRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td ${dc(-1,'all')}><b>${fmtNum(T.n)}</b></td><td><b>${T.n?'100.0%':'—'}</b></td><td ${dc(-1,'paid')}><b>${fmtNum(T.paid)}</b></td><td><b>${pct(T.paid,T.n)}</b></td><td ${dc(-1,'paid')}><b>${fmtMoney(T.rev)}</b></td><td><b>${T.rev?'100.0%':'—'}</b></td></tr>`;
-  el.innerHTML = `<thead><tr><th>الحملة</th><th>عملاء</th><th>% من العملاء</th><th>دفعوا</th><th>نسبة التحويل</th><th>إجمالي العروض</th><th>% من العروض</th></tr></thead>
-    <tbody>${entries.length ? entries.map((e,i)=>row(e,i)).join('')+totalRow : emptyRow(7,'لا توجد بيانات')}</tbody>`;
+  const row = ([k,g],i)=>`<tr><td>${esc(k)}</td><td ${dc(i,'all')}>${fmtNum(g.n)}</td><td>${pct(g.n,T.n)}</td><td ${dc(i,'ans')} style="cursor:pointer; font-weight:700;">${pct(g.ans,g.n)}</td><td ${dc(i,'noans')} style="cursor:pointer; font-weight:700; color:var(--red);">${pct(g.noAns,g.n)}</td><td ${dc(i,'wrong')} style="cursor:pointer; font-weight:700;">${pct(g.wrong,g.n)}</td><td ${dc(i,'paid')}>${fmtNum(g.paid)}</td><td style="font-weight:700;">${pct(g.paid,g.n)}</td><td style="font-weight:700; color:var(--green);">${pct(g.paidAns,g.ans)}</td><td ${dc(i,'paid')}><b>${fmtMoney(g.rev)}</b></td><td>${pct(g.rev,T.rev)}</td></tr>`;
+  const totalRow = `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td ${dc(-1,'all')}><b>${fmtNum(T.n)}</b></td><td><b>${T.n?'100.0%':'—'}</b></td><td ${dc(-1,'ans')}><b>${pct(T.ans,T.n)}</b></td><td ${dc(-1,'noans')}><b>${pct(T.noAns,T.n)}</b></td><td ${dc(-1,'wrong')}><b>${pct(T.wrong,T.n)}</b></td><td ${dc(-1,'paid')}><b>${fmtNum(T.paid)}</b></td><td><b>${pct(T.paid,T.n)}</b></td><td><b>${pct(T.paidAns,T.ans)}</b></td><td ${dc(-1,'paid')}><b>${fmtMoney(T.rev)}</b></td><td><b>${T.rev?'100.0%':'—'}</b></td></tr>`;
+  el.innerHTML = `<thead><tr><th>الحملة</th><th>عملاء</th><th>% من العملاء</th><th>نسبة الرد (Answer)</th><th>نسبة No Answer</th><th>نسبة Wrong Number</th><th>دفعوا</th><th>نسبة التحويل</th><th>تحويل على الرد</th><th>إجمالي العروض</th><th>% من العروض</th></tr></thead>
+    <tbody>${entries.length ? entries.map((e,i)=>row(e,i)).join('')+totalRow : emptyRow(11,'لا توجد بيانات')}</tbody>`;
 }
 function totPivotDrill(i){
   const lst = (window.__totPivotLists||[])[i] || [];
