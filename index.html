@@ -5252,6 +5252,18 @@ function marketingTemplate(){
         <div style="overflow:auto;"><table id="mkt-new-table"></table></div>
       </div>
       <div class="panel">
+        <div class="panel-title"><span class="bar"></span> 📅 فلتر التقارير التلاتة اللي تحت (مستقل عن فلتر جدول الإعلانات)</div>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <b style="font-size:12.5px;">الشهر:</b>
+          <select id="rpt-month" style="width:auto; min-width:150px;" onchange="onRptMonth(this.value)"></select>
+          <b style="font-size:12.5px;">من تاريخ:</b>
+          <input type="date" id="rpt-from" style="width:auto;" onchange="onRptDates()">
+          <b style="font-size:12.5px;">إلى تاريخ:</b>
+          <input type="date" id="rpt-to" style="width:auto;" onchange="onRptDates()">
+        </div>
+        <div class="badge-note" style="margin-top:10px;">التقارير دي (KPI الإعلانات حسب اللغة، إيراد اللغات، الزوار حسب الفرع) بتتحسب على الفترة اللي هنا بس، ومش متأثرة بفلتر الجدول اللي فوق ولا بفلاتر أول الصفحة. الصرف بتدخله جوه جدول الـ KPI لنفس الفترة دي.</div>
+      </div>
+      <div class="panel">
         <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📊 KPI الإعلانات حسب اللغة</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-kpi-table','ads_kpi_by_language')">⬇️ Excel</button></div>
         <div class="badge-note" style="line-height:1.9;">
           <b>Spend</b> = الصرف اللي دخلته فوق (Meta لكل لغة، والإجمالي فيه باقي المنصات). <b>Number Of Messages</b> = رقم بتكتبه بإيدك (مش موجود في الشيتات). <b>Leads</b> = ليدز الـ Leads الشيت. <b>Calls</b> = عملاء Received (اتصلوا بينا). <b>Num ST</b> = العملاء اللي راحوا الفرع وتسجلوا (شيت Students) في الفترة. <b>Paid</b> = منهم اللي دفعوا دفعة عميل جديد <u>جوه الفترة المختارة</u> (نفس الشهر — الدفعات القديمة بتاعة الـ Old Student مش بتتحسب). <b>Revenue</b> = فلوس دفعاتهم دي. &nbsp;•&nbsp;
@@ -5430,8 +5442,7 @@ function onMktSpend(i, value){
   all[key][window.__mktDefs[i].id] = parseFloat(value) || 0;
   saveManual('mktAdsSpend', all);
   mktUpdateCosts();
-  renderMktKpiLang();
-  renderMktLangRevenue();
+  renderMktReports();
 }
 function mktSpendFor(id){
   const S = window.MKT_NEW;
@@ -5524,25 +5535,74 @@ function studentsList(){
   window.__stuList = {F, list: out};
   return out;
 }
+
+/* ===== Own period filter for: KPI by language / language revenue / visitors by branch (independent of the ads table filter) ===== */
+window.MKT_RPT = window.MKT_RPT || {from:null, to:null, month:null};
+function rptInit(){
+  const R = window.MKT_RPT; if(R.from && R.to) return;
+  const S = window.MKT_NEW;
+  if(S && S.from){ R.from = S.from; R.to = S.to; R.month = S.month==='custom' ? 'custom' : (S.month||'all'); }
+}
+function rptMonths(){
+  const F = window.DATA_FULL, set = new Set();
+  (F.payments||[]).forEach(p=>{ if(p.date) set.add(monthKey(p.date)); });
+  (F.students||[]).forEach(x=>{ if(x.date) set.add(monthKey(x.date)); });
+  (F.allCalls||[]).forEach(c=>{ if(c.datetime) set.add(monthKey(c.datetime)); });
+  return Array.from(set).filter(Boolean).sort();
+}
+function rptSpendObj(){ const R = window.MKT_RPT; return (loadManual('mktAdsSpend',{})[R.from+'|'+R.to]) || {}; }
+function rptSpend(id){ return rptSpendObj()[id] || 0; }
+function rptTotalSpend(){ return Object.values(rptSpendObj()).reduce((x,v)=>x+(parseFloat(v)||0),0); }
+function onRptSpend(id, val){
+  const R = window.MKT_RPT, all = loadManual('mktAdsSpend',{}), k = R.from+'|'+R.to;
+  all[k] = all[k]||{}; all[k][id] = parseFloat(val)||0; saveManual('mktAdsSpend', all);
+  renderMktReports();
+  if(window.MKT_NEW && window.MKT_NEW.from+'|'+window.MKT_NEW.to===k){ try{ renderMktAdsReport(); }catch(e){} }
+}
+function renderMktRptFilter(){
+  rptInit();
+  const R = window.MKT_RPT, months = rptMonths().slice().reverse();
+  const sel = document.getElementById('rpt-month'); if(!sel) return;
+  sel.innerHTML = '<option value="all">كل الفترة</option>' + months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('') + (R.month==='custom' ? '<option value="custom">فترة مخصصة</option>' : '');
+  sel.value = R.month || 'all';
+  document.getElementById('rpt-from').value = R.from || '';
+  document.getElementById('rpt-to').value = R.to || '';
+}
+function onRptMonth(v){
+  const R = window.MKT_RPT; if(v==='custom') return;
+  if(v==='all'){ const ms = rptMonths(); R.from = ms[0]+'-01'; R.to = mktMonthEnd(ms[ms.length-1]); }
+  else { R.from = v+'-01'; R.to = mktMonthEnd(v); }
+  R.month = v; renderMktRptFilter(); renderMktReports();
+}
+function onRptDates(){
+  const R = window.MKT_RPT;
+  let f = document.getElementById('rpt-from').value, t = document.getElementById('rpt-to').value;
+  if(!f || !t) return; if(f > t){ const x=f; f=t; t=x; }
+  R.from = f; R.to = t; R.month = 'custom'; renderMktRptFilter(); renderMktReports();
+}
+function renderMktReports(){
+  rptInit();
+  [renderMktKpiLang, renderMktLangRevenue, renderMktBranchTable].forEach(fn=>{ try{ fn(); }catch(e){ console.error('mkt report failed', e); } });
+}
 /* New-sale payments of a student that fall INSIDE the selected ads period (same-month rule: an old payment never counts). */
 function mktPaysInPeriod(v){
-  const S = window.MKT_NEW;
+  const S = window.MKT_RPT;
   return (v.pays||[]).filter(p=>{ const k = dayKey(p.date); return k>=S.from && k<=S.to; });
 }
 function mktVisitorsInRange(){
-  const S = window.MKT_NEW; if(!S || !S.from) return [];
+  const S = window.MKT_RPT; if(!S || !S.from) return [];
   return studentsList().filter(v=>{ const k = dayKey(v.date); return k>=S.from && k<=S.to; });
 }
 function visitorLang(v){ return v.lang; }
-function mktKpiManual(key){ const S = window.MKT_NEW; return (((loadManual('mktAdsMsgs',{}))[S.from+'|'+S.to]||{})[key]) || 0; }
+function mktKpiManual(key){ const S = window.MKT_RPT; return (((loadManual('mktAdsMsgs',{}))[S.from+'|'+S.to]||{})[key]) || 0; }
 function onMktMsgs(key, val){
-  const S = window.MKT_NEW, all = loadManual('mktAdsMsgs', {}); const k = S.from+'|'+S.to;
+  const S = window.MKT_RPT, all = loadManual('mktAdsMsgs', {}); const k = S.from+'|'+S.to;
   all[k] = all[k]||{}; all[k][key] = parseFloat(val)||0; saveManual('mktAdsMsgs', all); renderMktKpiLang();
 }
 function openMktVisitors(title, list){ window.__visLists = window.__visLists||[]; window.__visLists.push({title, list}); openVisitorList(window.__visLists.length-1); }
 function renderMktKpiLang(){
-  const table = document.getElementById('mkt-kpi-table'); if(!table || !window.MKT_NEW || !window.MKT_NEW.from) return;
-  const S = window.MKT_NEW, F = window.DATA_FULL;
+  const table = document.getElementById('mkt-kpi-table'); if(!table || !window.MKT_RPT || !window.MKT_RPT.from) return;
+  const S = window.MKT_RPT, F = window.DATA_FULL;
   const scope = (document.getElementById('mkt-kpi-scope')||{value:'all'}).value;
   const inR = d=>{ const k = dayKey(d); return k>=S.from && k<=S.to; };
   const langs = ['English','German'];
@@ -5572,14 +5632,13 @@ function renderMktKpiLang(){
   vis.forEach(v=>{ const l = visitorLang(v); (visBy[(l==='English'||l==='German')?l:'other']).push(v); });
   const rev = l=> l.reduce((x,v)=>x+v.revenue,0);
   const paid = l=> l.filter(v=>v.paid);
-  const spendOf = l=> mktSpendFor('meta:'+l);
-  const R = mktRowsComputed();
-  const totalSpend = R.total.spend;
+  const spendOf = l=> rptSpend('meta:'+l);
+  const totalSpend = rptTotalSpend();
   const cols = langs.map(l=>({name:l, spend:spendOf(l), leads:leadsC[l], calls:callsC[l], st:visBy[l], key:l}))
     .concat([{name:'Total', spend:totalSpend, leads:leadsC.English+leadsC.German+leadsC.other, calls:callsC.English+callsC.German+callsC.other, st:vis, key:'total'}]);
   const msgIn = (c)=> c.key==='total'
     ? `<b>${fmtNum(mktKpiManual('English')+mktKpiManual('German'))}</b>`
-    : `<input type="number" min="0" step="1" value="${mktKpiManual(c.key)||''}" placeholder="0" style="width:90px;" oninput="onMktMsgs('${c.key}', this.value)">`;
+    : `<input type="number" min="0" step="1" value="${mktKpiManual(c.key)||''}" placeholder="0" style="width:90px;" onchange="onMktMsgs('${c.key}', this.value)">`;
   const div = (a,b,f)=> (a && b) ? f(a/b) : '—';
   const n1 = v=> (Math.round(v*10)/10).toLocaleString('en-US');
   const ds = cols.map(c=>{
@@ -5591,7 +5650,8 @@ function renderMktKpiLang(){
   const click = (title, l, text)=> l.length ? `<span class="drill-row" style="cursor:pointer;" onclick='openMktVisitors(${JSON.stringify(title)}, window.__mktKpiLists[${(window.__mktKpiLists=window.__mktKpiLists||[]).push(l)-1}])'>${text}</span>` : text;
   window.__mktKpiLists = [];
   table.innerHTML = `<thead><tr><th>KPI</th>${ds.map(c=>`<th>${c.name}</th>`).join('')}</tr></thead><tbody>
-    ${row('Spend', c=> c.spend? fmtMoney(Math.round(c.spend))+star : '—')}
+    ${row('Spend (Meta لكل لغة — إدخال)', c=> c.key==='total' ? (c.spend? '<b>'+fmtMoney(Math.round(c.spend))+'</b>'+star : '—') : `<input type="number" min="0" step="1" value="${rptSpend('meta:'+c.key)||''}" placeholder="0" style="width:110px;" onchange="onRptSpend('meta:${c.key}', this.value)">`)}
+    ${row('Spend — باقي المنصات (إدخال)', c=> c.key==='total' ? `<input type="number" min="0" step="1" value="${rptSpend('rpt:other')||''}" placeholder="0" style="width:110px;" onchange="onRptSpend('rpt:other', this.value)">` : '')}
     ${row('Revenue', c=> fmtMoney(Math.round(c.revenue)))}
     ${row('Number Of Messages (إدخال يدوي)', c=> msgIn(c))}
     ${row('Number Of Leads', c=> fmtNum(c.leads))}
@@ -5606,7 +5666,7 @@ function renderMktKpiLang(){
   </tbody>`;
 }
 function renderMktBranchTable(){
-  const table = document.getElementById('mkt-branch-table'); if(!table || !window.MKT_NEW || !window.MKT_NEW.from) return;
+  const table = document.getElementById('mkt-branch-table'); if(!table || !window.MKT_RPT || !window.MKT_RPT.from) return;
   const vis = mktVisitorsInRange();
   const m = new Map();
   vis.forEach(v=>{ if(!m.has(v.branch)) m.set(v.branch, []); m.get(v.branch).push(v); });
@@ -5632,8 +5692,8 @@ function openMktPayments(title, list){
   document.getElementById('drill-modal-overlay').style.display = 'flex';
 }
 function renderMktLangRevenue(){
-  const table = document.getElementById('mkt-lang-rev-table'); if(!table || !window.MKT_NEW || !window.MKT_NEW.from) return;
-  const S = window.MKT_NEW, F = window.DATA_FULL;
+  const table = document.getElementById('mkt-lang-rev-table'); if(!table || !window.MKT_RPT || !window.MKT_RPT.from) return;
+  const S = window.MKT_RPT, F = window.DATA_FULL;
   const pays = F.payments.filter(p=> p.amount && p.date && dayKey(p.date)>=S.from && dayKey(p.date)<=S.to);
   const langOf = p=> (p.track==='English'||p.track==='German') ? p.track : 'other';
   const cols = [{k:'English', n:'English'},{k:'German', n:'German'},{k:'other', n:'لغة غير محددة'},{k:'total', n:'Total'}];
@@ -5645,7 +5705,7 @@ function renderMktLangRevenue(){
   const cnt = (title, l)=> l.length ? `${reg(title,l)}${fmtNum(l.length)}</span>` : '0';
   const isOther = p=> !p.isCoreNewSale && !p.isRetention && !p.isRestOfMoney;
   const grand = sumL(pays);
-  const spendOf = c=> c.k==='total' ? mktRowsComputed().total.spend : (c.k==='other' ? 0 : mktSpendFor('meta:'+c.k));
+  const spendOf = c=> c.k==='total' ? rptTotalSpend() : (c.k==='other' ? 0 : rptSpend('meta:'+c.k));
   const star = '<span style="color:var(--red);"> *</span>';
   const row = (label, fn)=>`<tr><td style="background:var(--panel-2);"><b>${label}</b></td>${cols.map(c=>`<td>${fn(c)}</td>`).join('')}</tr>`;
   table.innerHTML = `<thead><tr><th>البند</th>${cols.map(c=>`<th>${c.n}</th>`).join('')}</tr></thead><tbody>
@@ -5721,9 +5781,8 @@ function renderMktAdsReport(){
 
   table.innerHTML = `<thead><tr><th>المنصة / المصدر</th><th>اللغة</th><th>الصرف (بالجنيه)</th><th>ليدز</th><th>دفعوا</th><th>نسبة التحويل</th><th>CPL</th><th>CAC</th><th>الإيراد</th><th>ROAS</th></tr></thead><tbody>${inRange.length ? body : emptyRow(10,'لا توجد بيانات في الفترة دي')}</tbody>`;
   mktUpdateCosts();
-  renderMktKpiLang();
-  renderMktLangRevenue();
-  renderMktBranchTable();
+  renderMktRptFilter();
+  renderMktReports();
 }
 
 function exportMktAdsReport(){
