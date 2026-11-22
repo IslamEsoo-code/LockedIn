@@ -5251,6 +5251,23 @@ function marketingTemplate(){
         <div class="kpi-grid" id="mkt-new-kpis" style="margin-bottom:16px;"></div>
         <div style="overflow:auto;"><table id="mkt-new-table"></table></div>
       </div>
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📊 KPI الإعلانات حسب اللغة</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-kpi-table','ads_kpi_by_language')">⬇️ Excel</button></div>
+        <div class="badge-note" style="line-height:1.9;">
+          <b>Spend</b> = الصرف اللي دخلته فوق (Meta لكل لغة، والإجمالي فيه باقي المنصات). <b>Number Of Messages</b> = رقم بتكتبه بإيدك (مش موجود في الشيتات). <b>Leads</b> = ليدز الـ Leads الشيت. <b>Calls</b> = عملاء Received (اتصلوا بينا). <b>Num ST</b> = العملاء اللي راحوا الفرع وتسجلوا (شيت Students) في الفترة. <b>Paid</b> = منهم اللي دفعوا دفعة عميل جديد بعد أول تواصل. <b>Revenue</b> = فلوسهم. &nbsp;•&nbsp;
+          ROAS = Revenue ÷ Spend، CPL = Spend ÷ Leads، Cost per call = Spend ÷ Calls، CAC = Spend ÷ Paid، AOV = Revenue ÷ Paid.
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;"><b style="font-size:12.5px;">أعمدة اللغات تحسب:</b>
+          <select id="mkt-kpi-scope" onchange="renderMktKpiLang()" style="width:auto; padding:5px 8px;"><option value="all">كل المصادر</option><option value="meta">Meta بس (فيس بوك + إنستجرام)</option></select></div>
+        <div style="overflow:auto;"><table id="mkt-kpi-table"></table></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 🏢 الزوار حسب الفرع (Not reg / Paid)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-branch-table','visitors_by_branch')">⬇️ Excel</button></div>
+        <div class="badge-note" style="line-height:1.9;">
+          كل عميل راح الفرع وتسجل (شيت Students) في الفترة المختارة، بيتعد مرة واحدة. <b>Paid</b> = دفع دفعة عميل جديد، <b>Not reg</b> = لسه ما دفعش. <b>CR paid</b> = Paid ÷ Total الفرع (الأحمر = أقل من 60%). <b>CR from grand total</b> = Paid الفرع ÷ إجمالي كل الزوار. 👆 دوس على أي رقم تشوف العملاء.
+        </div>
+        <div style="overflow:auto;"><table id="mkt-branch-table"></table></div>
+      </div>
     </div>
 
     <div id="mkt-tab-old" style="display:${(window.MKT_MAIN_TAB||'new')==='old'?'block':'none'};">
@@ -5348,12 +5365,14 @@ function mktCustomers(){
   clusters.forEach(g=>{
     const pays = new Set();
     g.ids.forEach(i=>{ const st = payIdx.get(i); if(st) st.forEach(p=>pays.add(p)); });
-    let revenue = 0; pays.forEach(p=>{ revenue += p.amount; });
+    // only payments on/after the customer's first contact (an older payment = existing student, not won by this lead)
+    const after = corePaymentsAfterFirstOfPhones(Array.from(g.ids));
+    let revenue = 0; after.forEach(p=>{ revenue += p.amount; });
     list.push({
       date: g.first.datetime,
       source: g.first.source || 'غير معروف',
       lang: g.langRec ? classifyCourse(g.langRec.course) : null,
-      paid: pays.size>0, revenue
+      paid: after.length>0, revenue
     });
   });
   window.__mktCust = {F, list};
@@ -5404,6 +5423,7 @@ function onMktSpend(i, value){
   all[key][window.__mktDefs[i].id] = parseFloat(value) || 0;
   saveManual('mktAdsSpend', all);
   mktUpdateCosts();
+  renderMktKpiLang();
 }
 function mktSpendFor(id){
   const S = window.MKT_NEW;
@@ -5452,6 +5472,140 @@ function mktUpdateCosts(){
       <div class="kpi-icon" style="background:${k.color}33;">${k.icon}</div>
       <div><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div>
     </div></div>`).join('');
+}
+
+
+/* Visitors (Students sheet) inside the ads period: unique per customer, month/day of his first record */
+/* ST = everyone in the Students sheet (came to a branch / registered online): unique per customer (phone aliases),
+   date = his earliest student record. Paid = new-sale payment on/after his first contact. */
+function studentsList(){
+  const F = window.DATA_FULL;
+  if(window.__stuList && window.__stuList.F===F) return window.__stuList.list;
+  const groups = new Map();
+  (F.students||[]).forEach(st=>{
+    if(!st.date) return;
+    const ph = st.mobile1 || st.mobile2; if(!ph) return;
+    const key = F.resolveAliases(ph).slice().sort()[0];
+    const cur = groups.get(key);
+    if(!cur || st.date < cur.date) groups.set(key, st);
+  });
+  const out = [];
+  groups.forEach((st,key)=>{
+    const phones = new Set();
+    [st.mobile1, st.mobile2].forEach(ph=>{ if(ph) F.resolveAliases(ph).forEach(a=>phones.add(a)); });
+    const pl = Array.from(phones);
+    const dayStart = new Date(st.date.getFullYear(), st.date.getMonth(), st.date.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 86400000);
+    const calls = new Set();
+    pl.forEach(a=> (F.callIndex.get(a)||[]).forEach(c=>{ if(c.datetime && c.datetime < dayEnd) calls.add(c); }));
+    const callArr = Array.from(calls).sort((a,b)=>a.datetime-b.datetime);
+    const firstCall = callArr[0] || null;
+    const startDay = (firstCall && firstCall.datetime < dayStart) ? new Date(firstCall.datetime.getFullYear(), firstCall.datetime.getMonth(), firstCall.datetime.getDate()) : dayStart;
+    const pays = corePaymentsOfPhones(pl).filter(p=> p.date && p.date >= startDay);
+    let lang = pays.map(p=>p.track).find(t=>t==='English'||t==='German');
+    if(!lang){ const lc = callArr.find(c=>classifyCourse(c.course)); lang = lc ? classifyCourse(lc.course) : null; }
+    if(!lang && (st.track==='English'||st.track==='German')) lang = st.track;
+    out.push({
+      key, name: st.name||'—', phone: st.mobile1||st.mobile2, date: st.date, month: monthKey(st.date),
+      branch: st.location||'غير محدد', employee: st.employee||'—', track: st.track||'—', referal: st.referal||'غير محدد',
+      lang: lang||'غير محدد', callsBefore: callArr.length, firstCall,
+      paid: pays.length>0, revenue: pays.reduce((x,p)=>x+p.amount,0), pays
+    });
+  });
+  out.sort((a,b)=>a.date-b.date);
+  window.__stuList = {F, list: out};
+  return out;
+}
+function mktVisitorsInRange(){
+  const S = window.MKT_NEW; if(!S || !S.from) return [];
+  return studentsList().filter(v=>{ const k = dayKey(v.date); return k>=S.from && k<=S.to; });
+}
+function visitorLang(v){ return v.lang; }
+function mktKpiManual(key){ const S = window.MKT_NEW; return (((loadManual('mktAdsMsgs',{}))[S.from+'|'+S.to]||{})[key]) || 0; }
+function onMktMsgs(key, val){
+  const S = window.MKT_NEW, all = loadManual('mktAdsMsgs', {}); const k = S.from+'|'+S.to;
+  all[k] = all[k]||{}; all[k][key] = parseFloat(val)||0; saveManual('mktAdsMsgs', all); renderMktKpiLang();
+}
+function openMktVisitors(title, list){ window.__visLists = window.__visLists||[]; window.__visLists.push({title, list}); openVisitorList(window.__visLists.length-1); }
+function renderMktKpiLang(){
+  const table = document.getElementById('mkt-kpi-table'); if(!table || !window.MKT_NEW || !window.MKT_NEW.from) return;
+  const S = window.MKT_NEW, F = window.DATA_FULL;
+  const scope = (document.getElementById('mkt-kpi-scope')||{value:'all'}).value;
+  const inR = d=>{ const k = dayKey(d); return k>=S.from && k<=S.to; };
+  const langs = ['English','German'];
+  const custs = mktCustomers().filter(c=>inR(c.date) && (scope==='all' || MKT_META_SOURCES.has(c.source)));
+  // leads / calls by language (unique customers whose first contact is in range)
+  const firstByCluster = new Map(); let anon = 0;
+  const chOf = []; 
+  const leadsC = {English:0, German:0, other:0}, callsC = {English:0, German:0, other:0};
+  const seen = new Map();
+  F.received.map(c=>['Received',c]).concat(F.leads.map(c=>['Leads',c])).forEach(([ch,c])=>{
+    if(!c.datetime) return;
+    const ids = new Set(); callPhones(c).forEach(ph=> F.resolveAliases(ph).forEach(a=>ids.add(a)));
+    const cid = ids.size ? Array.from(ids).sort()[0] : ('anon-'+(anon++));
+    let g = seen.get(cid);
+    if(!g){ g = {first:c, ch, lang:null, src:c.source}; seen.set(cid,g); } else if(c.datetime < g.first.datetime){ g.first = c; g.ch = ch; g.src = c.source; }
+    const l = classifyCourse(c.course); if(l && (!g.lang || c.datetime < g.langDt)){ g.lang = l; g.langDt = c.datetime; }
+  });
+  seen.forEach(g=>{
+    if(!inR(g.first.datetime)) return;
+    if(scope==='meta' && !MKT_META_SOURCES.has(g.src||g.first.source)) return;
+    const l = (g.lang==='English'||g.lang==='German') ? g.lang : 'other';
+    (g.ch==='Leads' ? leadsC : callsC)[l]++;
+  });
+  // visitors
+  const vis = mktVisitorsInRange();
+  const visBy = {English:[], German:[], other:[]};
+  vis.forEach(v=>{ const l = visitorLang(v); (visBy[(l==='English'||l==='German')?l:'other']).push(v); });
+  const rev = l=> l.reduce((x,v)=>x+v.revenue,0);
+  const paid = l=> l.filter(v=>v.paid);
+  const spendOf = l=> mktSpendFor('meta:'+l);
+  const R = mktRowsComputed();
+  const totalSpend = R.total.spend;
+  const cols = langs.map(l=>({name:l, spend:spendOf(l), leads:leadsC[l], calls:callsC[l], st:visBy[l], key:l}))
+    .concat([{name:'Total', spend:totalSpend, leads:leadsC.English+leadsC.German+leadsC.other, calls:callsC.English+callsC.German+callsC.other, st:vis, key:'total'}]);
+  const msgIn = (c)=> c.key==='total'
+    ? `<b>${fmtNum(mktKpiManual('English')+mktKpiManual('German'))}</b>`
+    : `<input type="number" min="0" step="1" value="${mktKpiManual(c.key)||''}" placeholder="0" style="width:90px;" oninput="onMktMsgs('${c.key}', this.value)">`;
+  const div = (a,b,f)=> (a && b) ? f(a/b) : '—';
+  const n1 = v=> (Math.round(v*10)/10).toLocaleString('en-US');
+  const ds = cols.map(c=>{
+    const pd = paid(c.st), rv = rev(pd);
+    return {...c, paidN:pd.length, revenue:rv, pd};
+  });
+  const row = (label, fn, bold)=>`<tr><td style="background:var(--panel-2);"><b>${label}</b></td>${ds.map(c=>`<td>${bold?'<b>':''}${fn(c)}${bold?'</b>':''}</td>`).join('')}</tr>`;
+  const star = '<span style="color:var(--red);"> *</span>';
+  const click = (title, l, text)=> l.length ? `<span class="drill-row" style="cursor:pointer;" onclick='openMktVisitors(${JSON.stringify(title)}, window.__mktKpiLists[${(window.__mktKpiLists=window.__mktKpiLists||[]).push(l)-1}])'>${text}</span>` : text;
+  window.__mktKpiLists = [];
+  table.innerHTML = `<thead><tr><th>KPI</th>${ds.map(c=>`<th>${c.name}</th>`).join('')}</tr></thead><tbody>
+    ${row('Spend', c=> c.spend? fmtMoney(Math.round(c.spend))+star : '—')}
+    ${row('Revenue', c=> fmtMoney(Math.round(c.revenue)))}
+    ${row('Number Of Messages (إدخال يدوي)', c=> msgIn(c))}
+    ${row('Number Of Leads', c=> fmtNum(c.leads))}
+    ${row('Number Of Calls (Received)', c=> fmtNum(c.calls))}
+    ${row('Num, ST (زوار الفرع)', c=> click('Num ST — '+c.name, c.st, fmtNum(c.st.length)))}
+    ${row('Paid', c=> click('Paid — '+c.name, c.pd, fmtNum(c.paidN)))}
+    ${row('ROAS', c=> c.spend && c.revenue ? (c.revenue/c.spend).toFixed(2)+star : '—')}
+    ${row('CPL (Spend / Leads)', c=> div(c.spend,c.leads,n1)+(c.spend&&c.leads?star:''))}
+    ${row('Cost per call', c=> div(c.spend,c.calls,v=>Math.round(v).toLocaleString('en-US'))+(c.spend&&c.calls?star:''))}
+    ${row('CAC (Spend / Paid)', c=> div(c.spend,c.paidN,v=>Math.round(v).toLocaleString('en-US'))+(c.spend&&c.paidN?star:''))}
+    ${row('AOV (Revenue / Paid)', c=> div(c.revenue,c.paidN,v=>Math.round(v).toLocaleString('en-US')))}
+  </tbody>`;
+}
+function renderMktBranchTable(){
+  const table = document.getElementById('mkt-branch-table'); if(!table || !window.MKT_NEW || !window.MKT_NEW.from) return;
+  const vis = mktVisitorsInRange();
+  const m = new Map();
+  vis.forEach(v=>{ if(!m.has(v.branch)) m.set(v.branch, []); m.get(v.branch).push(v); });
+  const ent = Array.from(m.entries()).sort((a,b)=>b[1].length-a[1].length);
+  const G = vis.length, GP = vis.filter(v=>v.paid).length;
+  window.__mktBrLists = [];
+  const cell = (title, l)=> l.length ? `<span class="drill-row" style="cursor:pointer;" onclick='openMktVisitors(${JSON.stringify(title)}, window.__mktBrLists[${window.__mktBrLists.push(l)-1}])'>${fmtNum(l.length)}</span>` : '0';
+  const pc = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  table.innerHTML = `<thead><tr><th>Branch</th><th>Not reg</th><th>Paid</th><th>Total</th><th>CR paid</th><th>CR from grand total</th></tr></thead>
+    <tbody>${ent.length ? ent.map(([b,l])=>{ const pd=l.filter(v=>v.paid), np=l.filter(v=>!v.paid), cr=l.length? pd.length/l.length*100:0;
+      return `<tr><td><b>${esc(b)}</b></td><td>${cell(b+' — Not reg', np)}</td><td>${cell(b+' — Paid', pd)}</td><td>${cell(b+' — Total', l)}</td><td style="font-weight:700; ${cr<60?'background:#fecaca; color:#991b1b;':''}">${fmtPct(cr)}</td><td>${pc(pd.length, G)}</td></tr>`; }).join('')
+      + `<tr style="border-top:2px solid var(--border); background:var(--panel-2);"><td><b>Grand Total</b></td><td><b>${cell('Not reg', vis.filter(v=>!v.paid))}</b></td><td><b>${cell('Paid', vis.filter(v=>v.paid))}</b></td><td><b>${cell('Total', vis)}</b></td><td><b>${pc(GP,G)}</b></td><td><b>${pc(GP,G)}</b></td></tr>` : emptyRow(6,'مفيش زوار فروع في الفترة دي')}</tbody>`;
 }
 
 function renderMktAdsReport(){
@@ -5512,6 +5666,8 @@ function renderMktAdsReport(){
 
   table.innerHTML = `<thead><tr><th>المنصة / المصدر</th><th>اللغة</th><th>الصرف (بالجنيه)</th><th>ليدز</th><th>دفعوا</th><th>نسبة التحويل</th><th>CPL</th><th>CAC</th><th>الإيراد</th><th>ROAS</th></tr></thead><tbody>${inRange.length ? body : emptyRow(10,'لا توجد بيانات في الفترة دي')}</tbody>`;
   mktUpdateCosts();
+  renderMktKpiLang();
+  renderMktBranchTable();
 }
 
 function exportMktAdsReport(){
