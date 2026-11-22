@@ -2426,6 +2426,19 @@ function callsTemplate(){
       <div style="overflow:auto; max-height:320px;"><table id="leads-campaign-table"></table></div>
     </div>
 
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📞 نتيجة المكالمة × حالة التسجيل</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-result-reg-table','leads_result_x_reg')">⬇️ Excel</button></div>
+        <div class="badge-note">كل عميل بيتعد مرة واحدة (آخر مكالمة ليه في Leads) — نتيجة المكالمة (Call Result) مقابل Not Reg / Reg / Paid</div>
+        <div style="overflow:auto; max-height:320px;"><table id="leads-result-reg-table"></table></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📊 نتائج المكالمات (Call Result)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('leads-result-table','leads_call_results')">⬇️ Excel</button></div>
+        <div class="badge-note">عدد العملاء ونسبتهم لكل نتيجة مكالمة</div>
+        <div style="overflow:auto; max-height:320px;"><table id="leads-result-table"></table></div>
+      </div>
+    </div>
+
 
     <div class="grid-2">
       <div class="panel">
@@ -2733,6 +2746,7 @@ function renderCalls(){
   renderLeadDemographics('leads');
   renderLeadJobTable('leads');
   try{ renderLeadCampaignReason('leads'); }catch(err){ console.error('campaign/reason report failed', err); }
+  try{ renderLeadResultPivot('leads'); }catch(err){ console.error('result pivot failed', err); }
   renderLeadCourseTrack('leads');
   renderLeadWeekday('leads');
   renderPeriodComparison('leads');
@@ -2772,6 +2786,13 @@ function drillChannel(channel, field, value, title){
   else if(field==='__weekday') list = leads.filter(c=>c.datetime && String(c.datetime.getDay())===value);
   else if(field==='__noActionBucket') list = ((channel==='received' ? window.__noActionBucketsReceived : window.__noActionBuckets) && (channel==='received' ? window.__noActionBucketsReceived : window.__noActionBuckets)[parseInt(value,10)]) || [];
   else if(field==='__combo'){ const [src,seg] = value.split('||'); list = leads.filter(c=>c.source===src && c.segment===seg); }
+  else if(field==='__resreg'){
+    const [r,g] = value.split('||');
+    list = leads.filter(c=>{
+      const res = String(c.callResult||'').trim() || 'غير محدد', reg = String(c.regStatus||'').trim() || 'غير محدد';
+      return (r==='*' || res===r) && (g==='*' || reg===g);
+    });
+  }
   else if(field==='agent') list = leads.filter(c=>(c.agent||'—')===value);
   else list = leads.filter(c=>(c[field]||'غير محدد')===value);
   openDrillModal(title, list);
@@ -3807,6 +3828,35 @@ function renderLeadCampaignReason(channel){
   el.innerHTML = `
     <thead><tr><th>الحملة</th><th>عدد</th><th>% من الإجمالي</th><th>نسبة الرد (Answer)</th><th>نسبة No Answer</th><th>نسبة Wrong Number</th><th>دفعوا</th><th>نسبة التحويل</th><th>تحويل على الرد</th><th>إجمالي العروض</th></tr></thead>
     <tbody>${note}${entries.map(([k,g])=>`<tr class="drill-row" onclick='${drillFn}("campaign", ${attrSafe(k)}, ${attrSafe('الحملة: '+k)})'><td>${esc(k)}</td><td>${fmtNum(g.total)}</td><td>${fmtPct(total? g.total/total*100:0)}</td><td style="font-weight:700;">${pc(g.ans,g.total)}</td><td style="font-weight:700; color:var(--red);">${pc(g.noAns,g.total)}</td><td style="font-weight:700; color:var(--orange,#f59e0b);">${pc(g.wrong,g.total)}</td><td>${fmtNum(g.paid)}</td><td style="font-weight:700;">${fmtPct(g.total? g.paid/g.total*100:0)}</td><td style="font-weight:700; color:var(--green);">${pc(g.paidAns,g.ans)}</td><td><b>${fmtMoney(g.rev)}</b></td></tr>`).join('') + (entries.length ? `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td><b>${fmtNum(T.total)}</b></td><td><b>100.0%</b></td><td><b>${pc(T.ans,T.total)}</b></td><td><b>${pc(T.noAns,T.total)}</b></td><td><b>${pc(T.wrong,T.total)}</b></td><td><b>${fmtNum(T.paid)}</b></td><td><b>${fmtPct(T.total? T.paid/T.total*100:0)}</b></td><td><b>${pc(T.paidAns,T.ans)}</b></td><td><b>${fmtMoney(T.rev)}</b></td></tr>` : emptyRow(10,'لا توجد بيانات'))}</tbody>`;
+}
+
+function renderLeadResultPivot(channel){
+  channel = channel || 'leads';
+  const el1 = document.getElementById(channel+'-result-reg-table');
+  const el2 = document.getElementById(channel+'-result-table');
+  if(!el1 && !el2) return;
+  const drillFn = channelDrillFnName(channel);
+  const list = channelList(channel);
+  const resOrder = ['Answer','No Action Yet','No Answer','Wrong Number'];
+  const regOrder = ['Not Registered Yet','Paid','Registered'];
+  const resOf = c=> String(c.callResult||'').trim() || 'غير محدد';
+  const regOf = c=> String(c.regStatus||'').trim() || 'غير محدد';
+  const keys = (arr, pref)=> Array.from(new Set(arr)).sort((a,b)=>{ const ia=pref.indexOf(a), ib=pref.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib) || String(a).localeCompare(String(b)); });
+  const resKeys = keys(list.map(resOf), resOrder), regKeys = keys(list.map(regOf), regOrder);
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const cell = (n, r, g, bold)=> n ? `<td class="drill-row" style="cursor:pointer;" onclick='${drillFn}("__resreg", ${attrSafe((r||'*')+'||'+(g||'*'))}, ${attrSafe('نتيجة المكالمة: '+(r||'الكل')+(g?' / '+g:''))})'>${bold?'<b>':''}${fmtNum(n)}${bold?'</b>':''}</td>` : '<td></td>';
+  if(el1) el1.innerHTML = `<thead><tr><th>نتيجة المكالمة</th>${regKeys.map(k=>`<th>${esc(k)}</th>`).join('')}<th>الإجمالي</th></tr></thead>
+    <tbody>${list.length ? resKeys.map(r=>{
+      const row = list.filter(c=>resOf(c)===r);
+      return `<tr><td>${esc(r)}</td>${regKeys.map(g=>cell(row.filter(c=>regOf(c)===g).length, r, g)).join('')}${cell(row.length, r, null, true)}</tr>`;
+    }).join('') + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td>${regKeys.map(g=>cell(list.filter(c=>regOf(c)===g).length, null, g, true)).join('')}${cell(list.length, null, null, true)}</tr>`
+    : emptyRow(regKeys.length+2,'لا توجد بيانات')}</tbody>`;
+  if(el2) el2.innerHTML = `<thead><tr><th>نتيجة المكالمة</th><th>عدد العملاء</th><th>% من الإجمالي</th></tr></thead>
+    <tbody>${list.length ? resKeys.map(r=>{
+      const n = list.filter(c=>resOf(c)===r).length;
+      return `<tr><td>${esc(r)}</td>${cell(n, r, null)}<td style="font-weight:700;">${pct(n, list.length)}</td></tr>`;
+    }).join('') + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td>${cell(list.length, null, null, true)}<td><b>100.0%</b></td></tr>`
+    : emptyRow(3,'لا توجد بيانات')}</tbody>`;
 }
 
 function renderLeadJobTable(channel){
