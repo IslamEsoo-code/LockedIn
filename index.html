@@ -5254,7 +5254,7 @@ function marketingTemplate(){
       <div class="panel">
         <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📊 KPI الإعلانات حسب اللغة</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-kpi-table','ads_kpi_by_language')">⬇️ Excel</button></div>
         <div class="badge-note" style="line-height:1.9;">
-          <b>Spend</b> = الصرف اللي دخلته فوق (Meta لكل لغة، والإجمالي فيه باقي المنصات). <b>Number Of Messages</b> = رقم بتكتبه بإيدك (مش موجود في الشيتات). <b>Leads</b> = ليدز الـ Leads الشيت. <b>Calls</b> = عملاء Received (اتصلوا بينا). <b>Num ST</b> = العملاء اللي راحوا الفرع وتسجلوا (شيت Students) في الفترة. <b>Paid</b> = منهم اللي دفعوا دفعة عميل جديد بعد أول تواصل. <b>Revenue</b> = فلوسهم. &nbsp;•&nbsp;
+          <b>Spend</b> = الصرف اللي دخلته فوق (Meta لكل لغة، والإجمالي فيه باقي المنصات). <b>Number Of Messages</b> = رقم بتكتبه بإيدك (مش موجود في الشيتات). <b>Leads</b> = ليدز الـ Leads الشيت. <b>Calls</b> = عملاء Received (اتصلوا بينا). <b>Num ST</b> = العملاء اللي راحوا الفرع وتسجلوا (شيت Students) في الفترة. <b>Paid</b> = منهم اللي دفعوا دفعة عميل جديد <u>جوه الفترة المختارة</u> (نفس الشهر — الدفعات القديمة بتاعة الـ Old Student مش بتتحسب). <b>Revenue</b> = فلوس دفعاتهم دي. &nbsp;•&nbsp;
           ROAS = Revenue ÷ Spend، CPL = Spend ÷ Leads، Cost per call = Spend ÷ Calls، CAC = Spend ÷ Paid، AOV = Revenue ÷ Paid.
         </div>
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;"><b style="font-size:12.5px;">أعمدة اللغات تحسب:</b>
@@ -5262,9 +5262,16 @@ function marketingTemplate(){
         <div style="overflow:auto;"><table id="mkt-kpi-table"></table></div>
       </div>
       <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 💵 إيراد اللغات — كل الفلوس اللي دخلت في الفترة</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-lang-rev-table','revenue_by_language')">⬇️ Excel</button></div>
+        <div class="badge-note" style="line-height:1.9;">
+          <b>أي فلوس دخلت</b> (حسب تاريخ الدفع) خلال الفترة المختارة فوق، لكل لغة — من غير ما نبص هي لعميل جديد ولا قديم ولا ليه تواصل ولا لأ. مقسّمة: عملاء جدد (New Comer) / ريتنشن / Rest Of Money / باقي الأنواع. دوس على أي رقم تشوف الدفعات.
+        </div>
+        <div style="overflow:auto;"><table id="mkt-lang-rev-table"></table></div>
+      </div>
+      <div class="panel">
         <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 🏢 الزوار حسب الفرع (Not reg / Paid)</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-branch-table','visitors_by_branch')">⬇️ Excel</button></div>
         <div class="badge-note" style="line-height:1.9;">
-          كل عميل راح الفرع وتسجل (شيت Students) في الفترة المختارة، بيتعد مرة واحدة. <b>Paid</b> = دفع دفعة عميل جديد، <b>Not reg</b> = لسه ما دفعش. <b>CR paid</b> = Paid ÷ Total الفرع (الأحمر = أقل من 60%). <b>CR from grand total</b> = Paid الفرع ÷ إجمالي كل الزوار. 👆 دوس على أي رقم تشوف العملاء.
+          كل عميل راح الفرع وتسجل (شيت Students) في الفترة المختارة، بيتعد مرة واحدة. <b>Paid</b> = دفع دفعة عميل جديد <u>جوه الفترة المختارة</u> (نفس الشهر)، <b>Not reg</b> = ما دفعش في الفترة دي. <b>CR paid</b> = Paid ÷ Total الفرع (الأحمر = أقل من 60%). <b>CR from grand total</b> = Paid الفرع ÷ إجمالي كل الزوار. 👆 دوس على أي رقم تشوف العملاء.
         </div>
         <div style="overflow:auto;"><table id="mkt-branch-table"></table></div>
       </div>
@@ -5424,6 +5431,7 @@ function onMktSpend(i, value){
   saveManual('mktAdsSpend', all);
   mktUpdateCosts();
   renderMktKpiLang();
+  renderMktLangRevenue();
 }
 function mktSpendFor(id){
   const S = window.MKT_NEW;
@@ -5516,6 +5524,11 @@ function studentsList(){
   window.__stuList = {F, list: out};
   return out;
 }
+/* New-sale payments of a student that fall INSIDE the selected ads period (same-month rule: an old payment never counts). */
+function mktPaysInPeriod(v){
+  const S = window.MKT_NEW;
+  return (v.pays||[]).filter(p=>{ const k = dayKey(p.date); return k>=S.from && k<=S.to; });
+}
 function mktVisitorsInRange(){
   const S = window.MKT_NEW; if(!S || !S.from) return [];
   return studentsList().filter(v=>{ const k = dayKey(v.date); return k>=S.from && k<=S.to; });
@@ -5570,7 +5583,7 @@ function renderMktKpiLang(){
   const div = (a,b,f)=> (a && b) ? f(a/b) : '—';
   const n1 = v=> (Math.round(v*10)/10).toLocaleString('en-US');
   const ds = cols.map(c=>{
-    const pd = paid(c.st), rv = rev(pd);
+    const pd = c.st.filter(v=>mktPaysInPeriod(v).length>0), rv = pd.reduce((x,v)=>x+mktPaysInPeriod(v).reduce((y,p)=>y+p.amount,0),0);
     return {...c, paidN:pd.length, revenue:rv, pd};
   });
   const row = (label, fn, bold)=>`<tr><td style="background:var(--panel-2);"><b>${label}</b></td>${ds.map(c=>`<td>${bold?'<b>':''}${fn(c)}${bold?'</b>':''}</td>`).join('')}</tr>`;
@@ -5598,14 +5611,56 @@ function renderMktBranchTable(){
   const m = new Map();
   vis.forEach(v=>{ if(!m.has(v.branch)) m.set(v.branch, []); m.get(v.branch).push(v); });
   const ent = Array.from(m.entries()).sort((a,b)=>b[1].length-a[1].length);
-  const G = vis.length, GP = vis.filter(v=>v.paid).length;
+  const isPaid = v=> mktPaysInPeriod(v).length>0;
+  const G = vis.length, GP = vis.filter(isPaid).length;
   window.__mktBrLists = [];
   const cell = (title, l)=> l.length ? `<span class="drill-row" style="cursor:pointer;" onclick='openMktVisitors(${JSON.stringify(title)}, window.__mktBrLists[${window.__mktBrLists.push(l)-1}])'>${fmtNum(l.length)}</span>` : '0';
   const pc = (n,d)=> d ? fmtPct(n/d*100) : '—';
   table.innerHTML = `<thead><tr><th>Branch</th><th>Not reg</th><th>Paid</th><th>Total</th><th>CR paid</th><th>CR from grand total</th></tr></thead>
-    <tbody>${ent.length ? ent.map(([b,l])=>{ const pd=l.filter(v=>v.paid), np=l.filter(v=>!v.paid), cr=l.length? pd.length/l.length*100:0;
+    <tbody>${ent.length ? ent.map(([b,l])=>{ const pd=l.filter(isPaid), np=l.filter(v=>!isPaid(v)), cr=l.length? pd.length/l.length*100:0;
       return `<tr><td><b>${esc(b)}</b></td><td>${cell(b+' — Not reg', np)}</td><td>${cell(b+' — Paid', pd)}</td><td>${cell(b+' — Total', l)}</td><td style="font-weight:700; ${cr<60?'background:#fecaca; color:#991b1b;':''}">${fmtPct(cr)}</td><td>${pc(pd.length, G)}</td></tr>`; }).join('')
-      + `<tr style="border-top:2px solid var(--border); background:var(--panel-2);"><td><b>Grand Total</b></td><td><b>${cell('Not reg', vis.filter(v=>!v.paid))}</b></td><td><b>${cell('Paid', vis.filter(v=>v.paid))}</b></td><td><b>${cell('Total', vis)}</b></td><td><b>${pc(GP,G)}</b></td><td><b>${pc(GP,G)}</b></td></tr>` : emptyRow(6,'مفيش زوار فروع في الفترة دي')}</tbody>`;
+      + `<tr style="border-top:2px solid var(--border); background:var(--panel-2);"><td><b>Grand Total</b></td><td><b>${cell('Not reg', vis.filter(v=>!isPaid(v)))}</b></td><td><b>${cell('Paid', vis.filter(isPaid))}</b></td><td><b>${cell('Total', vis)}</b></td><td><b>${pc(GP,G)}</b></td><td><b>${pc(GP,G)}</b></td></tr>` : emptyRow(6,'مفيش زوار فروع في الفترة دي')}</tbody>`;
+}
+
+function openMktPayments(title, list){
+  const rows = list.slice().sort((a,b)=>(a.date||0)-(b.date||0));
+  const tot = rows.reduce((x,p)=>x+p.amount,0);
+  document.getElementById('drill-modal-title').textContent = `${title} (${rows.length})`;
+  document.getElementById('drill-modal-table').innerHTML = `<thead><tr><th>التاريخ</th><th>الاسم</th><th>الموبايل</th><th>نوع الدفع</th><th>طريقة الدفع</th><th>اللغة</th><th>المبلغ</th></tr></thead>
+    <tbody>${rows.length ? rows.map(p=>`<tr><td>${dayKey(p.date)||'—'}</td><td>${esc(p.studentName||'—')}</td><td>${esc(p.phone||'—')}</td><td>${esc(p.paymentType||p.type||'—')}</td><td>${esc(p.method||'—')}</td><td>${esc(p.track||'—')}</td><td><b>${fmtMoney(p.amount)}</b></td></tr>`).join('')
+      + `<tr style="border-top:2px solid var(--border);"><td><b>الإجمالي</b></td><td colspan="5"></td><td><b>${fmtMoney(tot)}</b></td></tr>` : emptyRow(7,'لا يوجد')}</tbody>`;
+  document.getElementById('drill-modal-overlay').style.display = 'flex';
+}
+function renderMktLangRevenue(){
+  const table = document.getElementById('mkt-lang-rev-table'); if(!table || !window.MKT_NEW || !window.MKT_NEW.from) return;
+  const S = window.MKT_NEW, F = window.DATA_FULL;
+  const pays = F.payments.filter(p=> p.amount && p.date && dayKey(p.date)>=S.from && dayKey(p.date)<=S.to);
+  const langOf = p=> (p.track==='English'||p.track==='German') ? p.track : 'other';
+  const cols = [{k:'English', n:'English'},{k:'German', n:'German'},{k:'other', n:'لغة غير محددة'},{k:'total', n:'Total'}];
+  const pick = (c, f)=> pays.filter(p=> (c.k==='total' || langOf(p)===c.k) && (!f || f(p)));
+  const sumL = l=> l.reduce((x,p)=>x+p.amount,0);
+  window.__mktPayLists = [];
+  const reg = (title, l)=> `<span class="drill-row" style="cursor:pointer;" onclick='openMktPayments(${JSON.stringify(title)}, window.__mktPayLists[${window.__mktPayLists.push(l)-1}])'>`;
+  const money = (title, l, bold)=> l.length ? `${reg(title,l)}${bold?'<b>':''}${fmtMoney(Math.round(sumL(l)))}${bold?'</b>':''}</span>` : '—';
+  const cnt = (title, l)=> l.length ? `${reg(title,l)}${fmtNum(l.length)}</span>` : '0';
+  const isOther = p=> !p.isCoreNewSale && !p.isRetention && !p.isRestOfMoney;
+  const grand = sumL(pays);
+  const spendOf = c=> c.k==='total' ? mktRowsComputed().total.spend : (c.k==='other' ? 0 : mktSpendFor('meta:'+c.k));
+  const star = '<span style="color:var(--red);"> *</span>';
+  const row = (label, fn)=>`<tr><td style="background:var(--panel-2);"><b>${label}</b></td>${cols.map(c=>`<td>${fn(c)}</td>`).join('')}</tr>`;
+  table.innerHTML = `<thead><tr><th>البند</th>${cols.map(c=>`<th>${c.n}</th>`).join('')}</tr></thead><tbody>
+    ${row('💰 إجمالي الفلوس اللي دخلت', c=> money(c.n+' — كل الفلوس', pick(c), true))}
+    ${row('% من إجمالي الفلوس', c=> grand ? fmtPct(sumL(pick(c))/grand*100) : '—')}
+    ${row('🆕 عملاء جدد (New Comer)', c=> money(c.n+' — عملاء جدد', pick(c,p=>p.isCoreNewSale)))}
+    ${row('🔁 ريتنشن', c=> money(c.n+' — ريتنشن', pick(c,p=>!p.isCoreNewSale && !p.isRestOfMoney && p.isRetention)))}
+    ${row('➕ Rest Of Money', c=> money(c.n+' — Rest Of Money', pick(c,p=>!p.isCoreNewSale && p.isRestOfMoney)))}
+    ${row('📦 باقي الأنواع (كتب / شهادات / اختبارات...)', c=> money(c.n+' — باقي الأنواع', pick(c,isOther)))}
+    ${row('عدد الدفعات', c=> cnt(c.n+' — الدفعات', pick(c)))}
+    ${row('عدد العملاء الدافعين (من غير تكرار)', c=> fmtNum(new Set(pick(c).map(p=>p.phone||('n:'+p.studentName))).size))}
+    ${row('Spend', c=> spendOf(c) ? fmtMoney(Math.round(spendOf(c)))+star : '—')}
+    ${row('ROAS (كل الفلوس ÷ Spend)', c=> spendOf(c) && sumL(pick(c)) ? (sumL(pick(c))/spendOf(c)).toFixed(2)+star : '—')}
+    ${row('ROAS (عملاء جدد ÷ Spend)', c=> spendOf(c) && sumL(pick(c,p=>p.isCoreNewSale)) ? (sumL(pick(c,p=>p.isCoreNewSale))/spendOf(c)).toFixed(2)+star : '—')}
+  </tbody>`;
 }
 
 function renderMktAdsReport(){
@@ -5667,6 +5722,7 @@ function renderMktAdsReport(){
   table.innerHTML = `<thead><tr><th>المنصة / المصدر</th><th>اللغة</th><th>الصرف (بالجنيه)</th><th>ليدز</th><th>دفعوا</th><th>نسبة التحويل</th><th>CPL</th><th>CAC</th><th>الإيراد</th><th>ROAS</th></tr></thead><tbody>${inRange.length ? body : emptyRow(10,'لا توجد بيانات في الفترة دي')}</tbody>`;
   mktUpdateCosts();
   renderMktKpiLang();
+  renderMktLangRevenue();
   renderMktBranchTable();
 }
 
