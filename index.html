@@ -6530,7 +6530,7 @@ function renderBusinessDecisionReports(){
      of the customer's globally last contact (p.attributedChannel), so
      Received + Leads + Unattributed = Total company revenue.
 ========================================================= */
-window.CMP = window.CMP || {aFrom:null, aTo:null, bFrom:null, bTo:null, language:'all', employee:'all', channel:'all', mode:'cum'};
+window.CMP = window.CMP || {aFrom:null, aTo:null, bFrom:null, bTo:null, language:'all', employee:'all', channel:'all', mode:'cum', cohortChannel:'all', cohortPay:'new'};
 const CMP_A = '#7c5cff', CMP_B = '#ec4899';
 
 function cmpKeyToDate(k){ const p=k.split('-').map(Number); return new Date(p[0], p[1]-1, p[2]); }
@@ -6601,6 +6601,55 @@ function cmpCallPass(c){
 }
 function cmpValidCall(c){ return !!c.agent && !isExcludedAgent(c.agent) && !!c.datetime && cmpCallPass(c); }
 
+/* Channel of the customer's FIRST-ever call (Leads or Received) — used to attribute a payment to a channel. null = no call found. */
+function payFirstChannel(p){
+  if(p.__fc!==undefined) return p.__fc;
+  const F = window.DATA_FULL; let best = null;
+  if(p.phone) F.resolveAliases(p.phone).forEach(a=>{ (F.callIndex.get(a)||[]).forEach(x=>{ if(x.datetime && (!best || x.datetime < best.datetime)) best = x; }); });
+  return (p.__fc = best ? best.channel : null);
+}
+
+/* ---- Cohort ("داتا الفترة"): customers whose FIRST contact ever (Leads or Received) falls in the period,
+   then their payments are looked up in the payments sheet (payments dated on/after the day of that first contact,
+   even if the payment itself is in a later month). ---- */
+function cmpCohortAll(){
+  const F = window.DATA_FULL;
+  if(window.__cmpCohort && window.__cmpCohort.F===F) return window.__cmpCohort.list;
+  const clusters = new Map(); let anon = 0;
+  const add = c=>{
+    if(!c.datetime || !c.agent || isExcludedAgent(c.agent)) return;
+    const ids = new Set(); callPhones(c).forEach(ph=> F.resolveAliases(ph).forEach(a=>ids.add(a)));
+    const cid = ids.size ? Array.from(ids).sort()[0] : ('anon-'+(anon++));
+    let g = clusters.get(cid);
+    if(!g){ g = {first:c, last:c, phones:new Set()}; clusters.set(cid, g); }
+    else { if(c.datetime < g.first.datetime) g.first = c; if(c.datetime >= g.last.datetime) g.last = c; }
+    callPhones(c).forEach(ph=>g.phones.add(ph));
+  };
+  (F.received||[]).forEach(add); (F.leads||[]).forEach(add);
+  const list = [];
+  clusters.forEach(g=>{
+    list.push({ date:g.first.datetime, day:dayKey(g.first.datetime), dayStart:new Date(g.first.datetime.getFullYear(), g.first.datetime.getMonth(), g.first.datetime.getDate()),
+      channel:g.first.channel, lang:classifyCourse(g.first.course), agent:g.last.agent, phones:Array.from(g.phones) });
+  });
+  window.__cmpCohort = {F, list};
+  return list;
+}
+function cmpAllPayIndex(){
+  const F = window.DATA_FULL;
+  if(!window.__allPayIdx || window.__allPayIdx.F!==F){
+    const idx = new Map();
+    (F.payments||[]).filter(p=>p.phone && p.amount>0).forEach(p=>{ F.resolveAliases(p.phone).forEach(a=>{ if(!idx.has(a)) idx.set(a,new Set()); idx.get(a).add(p); }); });
+    window.__allPayIdx = {F, idx};
+  }
+  return window.__allPayIdx.idx;
+}
+function cmpCohortPays(cust, scope){
+  if(scope!=='all') return corePaymentsOfPhones(cust.phones).filter(p=>p.date && p.date>=cust.dayStart);
+  const idx = cmpAllPayIndex(), F = window.DATA_FULL, seen = new Set();
+  cust.phones.forEach(ph=> F.resolveAliases(ph).forEach(a=>{ const s=idx.get(a); if(s) s.forEach(p=>seen.add(p)); }));
+  return Array.from(seen).filter(p=>p.date && p.date>=cust.dayStart);
+}
+
 /* Registered visitors (same definition as the Registered الفروع page) after the comparison's language / employee filters. */
 function cmpVisitors(){
   const C = window.CMP, F = window.DATA_FULL;
@@ -6613,7 +6662,7 @@ function cmpStats(from, to){
   const inR = d=>{ const k = dayKey(d); return !!k && (!from || k>=from) && (!to || k<=to); };
   const sum = a=> a.reduce((s,p)=>s+p.amount, 0);
   const pays = F.payments.filter(p=> p.date && inR(p.date) && cmpPayPass(p));
-  const byCh = (ch, list)=> (list||pays).filter(p=>p.attributedChannel===ch);
+  const byCh = (ch, list)=> (list||pays).filter(p=>payFirstChannel(p)===ch);
   const core = pays.filter(p=>p.isCoreNewSale);
   const recv = F.received.filter(c=> cmpValidCall(c) && inR(c.datetime));
   const leads = F.leads.filter(c=> cmpValidCall(c) && inR(c.datetime));
@@ -6623,6 +6672,14 @@ function cmpStats(from, to){
   const recvUnique = uniqueCustomerCount(recv), leadsUnique = uniqueCustomerCount(leads);
   const recvPaid = uniquePaidCount(recv), leadsPaid = uniquePaidCount(leads);
   const leadsAnswered = leads.filter(c=>leadResultIs(c,'Answer')).length;
+  // Cohort: customers whose first-ever contact is inside the period (+ own filters: first-call channel, payment scope)
+  const cohortScope = C.cohortPay || 'new', cohortCh = C.cohortChannel || 'all';
+  const coAll = cmpCohortAll().filter(x=> inR(x.date)
+    && (C.language==='all' || x.lang===C.language)
+    && (C.employee==='all' || x.agent===C.employee)
+    && (cohortCh==='all' || x.channel===cohortCh));
+  const coCalc = list=>{ let paid=0, rev=0; list.forEach(x=>{ const ps = cmpCohortPays(x, cohortScope); if(ps.length){ paid++; rev += ps.reduce((s,p)=>s+p.amount,0); } }); return {n:list.length, paid, rev}; };
+  const coT = coCalc(coAll), coR = coCalc(coAll.filter(x=>x.channel==='Received')), coL = coCalc(coAll.filter(x=>x.channel==='Leads'));
   const VV = cmpVisitors();
   const vis = VV.reg.filter(v=> inR(v.date)), visOrg = VV.org.filter(v=> inR(v.date));
   const visPaid = vis.filter(v=>v.paid), visOrgPaid = visOrg.filter(v=>v.paid);
@@ -6659,6 +6716,9 @@ function cmpStats(from, to){
     totalUnique: uniqueCustomerCount(recv.concat(leads)),
     avgDailyCalls: (recv.length + leads.length)/days,
     students,
+    coTotal: coT.n, coPaid: coT.paid, coConv: coT.n ? coT.paid/coT.n*100 : 0, coRev: coT.rev, coAvg: coT.paid ? coT.rev/coT.paid : 0,
+    coRecvN: coR.n, coRecvPaid: coR.paid, coRecvConv: coR.n ? coR.paid/coR.n*100 : 0, coRecvRev: coR.rev,
+    coLeadsN: coL.n, coLeadsPaid: coL.paid, coLeadsConv: coL.n ? coL.paid/coL.n*100 : 0, coLeadsRev: coL.rev,
     visTotal: vis.length, visPaid: visPaid.length, visConv: vis.length ? visPaid.length/vis.length*100 : 0,
     visRevenue: visPaid.reduce((s,v)=>s+v.revenue,0),
     visOrganic: visOrg.length, visOrganicPaid: visOrgPaid.length,
@@ -6688,7 +6748,7 @@ function compareTemplate(){
   const dateIn = (id, key)=> `<input type="date" id="${id}" style="width:auto;" value="${C[key]||''}" onchange="onCmpChange('${key}', this.value)">`;
   return `
     ${pageHeader('المقارنات', 'قارن أي فترتين: الإيراد (إجمالي / ريسيفد / ليدز) وعدد المكالمات، وشوف تطور الشهور')}
-    <div class="badge-note">الصفحة دي مستقلة عن فلتر الشهور اللي فوق — بتقارن أي فترتين من كل الداتا. الإيراد حسب القناة = القناة اللي كان فيها آخر تواصل مع العميل (كل دفعة بتتحسب مرة واحدة، فمجموع ريسيفد + ليدز + غير منسوب = إجمالي إيراد الشركة)</div>
+    <div class="badge-note">الصفحة دي مستقلة عن فلتر الشهور اللي فوق — بتقارن أي فترتين من كل الداتا. الإيراد حسب القناة = القناة اللي كان فيها <b>أول</b> تواصل مع العميل (كل دفعة بتتحسب مرة واحدة، فمجموع ريسيفد + ليدز + غير منسوب = إجمالي إيراد الشركة). وقسم "إيراد داتا الفترة" بياخد عملاء أول تواصل ليهم جوا الفترة ويدور على دفعاتهم (حتى لو اتدفعت بعد الفترة)</div>
     <div class="panel" style="padding:14px 18px;">
       <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:12px;">
         <div style="display:flex; align-items:center; gap:8px;">
@@ -6718,6 +6778,10 @@ function compareTemplate(){
           <select style="width:auto; min-width:130px;" onchange="onCmpChange('employee', this.value)">${opt('all','كل الموظفين',C.employee)}${employees.map(e=>opt(e,e,C.employee)).join('')}</select></div>
         <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12.5px; color:var(--text-dim);">📡 القناة (للرسومات اليومية)</span>
           <select style="width:auto;" onchange="onCmpChange('channel', this.value)">${opt('all','الكل',C.channel)}${opt('Received','Received',C.channel)}${opt('Leads','Leads',C.channel)}</select></div>
+        <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12.5px; color:var(--text-dim);">🎯 داتا الفترة — القناة (أول تواصل)</span>
+          <select style="width:auto;" onchange="onCmpChange('cohortChannel', this.value)">${opt('all','Leads + Received',C.cohortChannel||'all')}${opt('Received','Received بس',C.cohortChannel||'all')}${opt('Leads','Leads بس',C.cohortChannel||'all')}</select></div>
+        <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12.5px; color:var(--text-dim);">💳 داتا الفترة — نوع الدفعات</span>
+          <select style="width:auto;" onchange="onCmpChange('cohortPay', this.value)">${opt('new','New Comer بس',C.cohortPay||'new')}${opt('all','كل أنواع الدفعات',C.cohortPay||'new')}</select></div>
         <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12.5px; color:var(--text-dim);">📈 العرض</span>
           <select style="width:auto;" onchange="onCmpChange('mode', this.value)">${opt('cum','تراكمي',C.mode)}${opt('daily','يومي',C.mode)}</select></div>
       </div>
@@ -6837,8 +6901,9 @@ function cmpMonthlyRows(){
     if(!p.month || !cmpPayPass(p)) return;
     const r = map.get(p.month); if(!r) return;
     r.rev += p.amount;
-    if(p.attributedChannel==='Received') r.recv += p.amount;
-    else if(p.attributedChannel==='Leads') r.leads += p.amount;
+    const fch = payFirstChannel(p);
+    if(fch==='Received') r.recv += p.amount;
+    else if(fch==='Leads') r.leads += p.amount;
     else r.none += p.amount;
     if(p.isCoreNewSale) r.newRev += p.amount;
   });
@@ -6913,12 +6978,19 @@ function renderCompare(){
       ['أخرى (كتب / شهادات / ...)','revOther','money'], ['عدد الدفعات','payCount','num'],
       ['متوسط الدفعة','avgPay','money'], ['عملاء دافعين (أرقام فريدة)','payers','num'],
       ['متوسط الإيراد اليومي','avgDailyRev','money']]},
+    {title:'🎯 إيراد داتا الفترة — عملاء أول تواصل ليهم (Leads / Received) في الفترة، ودفعاتهم من شيت الدفع', rows:[
+      ['عملاء الفترة (أول تواصل في الفترة)','coTotal','num'], ['دفعوا (عندهم دفعة بعد أول تواصل)','coPaid','num'],
+      ['نسبة التحويل','coConv','pct'], ['إيراد عملاء الفترة','coRev','money'], ['متوسط الدفع للعميل الدافع','coAvg','money'],
+      ['أول تواصل Received — عملاء','coRecvN','num'], ['أول تواصل Received — دفعوا','coRecvPaid','num'],
+      ['أول تواصل Received — تحويل','coRecvConv','pct'], ['أول تواصل Received — الإيراد','coRecvRev','money'],
+      ['أول تواصل Leads — عملاء','coLeadsN','num'], ['أول تواصل Leads — دفعوا','coLeadsPaid','num'],
+      ['أول تواصل Leads — تحويل','coLeadsConv','pct'], ['أول تواصل Leads — الإيراد','coLeadsRev','money']]},
     {title:'🧾 العروض — قيمة البيع الكاملة (New Comer)', rows:[
       ['إجمالي قيمة العروض','offersTotal','money'], ['عدد العروض','offersCount','num'],
       ['المحصّل من هذه العروض (لحد دلوقتي)','offersPaid','money'],
       ['المتبقي (مديونية)','offersRemaining','money'], ['نسبة التحصيل','offersRate','pct'],
       ['عروض بدون سعر "per X" (مش محسوبة)','offersNoPrice','num']]},
-    {title:'🔀 الإيراد حسب القناة (آخر تواصل مع العميل)', rows:[
+    {title:'🔀 الإيراد حسب القناة (أول تواصل مع العميل)', rows:[
       ['إيراد من الريسيفد (Received)','revRecv','money'], ['إيراد من الليدز (Leads)','revLeads','money'],
       ['إيراد غير منسوب لقناة','revNone','money'],
       ['إيراد عملاء جدد — Received','newRecv','money'], ['إيراد عملاء جدد — Leads','newLeads','money']]},
