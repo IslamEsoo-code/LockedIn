@@ -1080,7 +1080,8 @@ function processAllData(raw){
     government: r['Government']||null, region: r['Region']||null, country: r['Country']||null,
     campaign: normLabel(r['Campaign']), reason: normLabel(r['Reason']), reason2: normLabel(r['Reason 2']),
     regStatus: r['Not Reg / Reg / Paid'], callResult: r['Call Result'], channel:'Leads',
-    origin: pickOrigin(r)
+    origin: pickOrigin(r),
+    sheetAgent: (r['Agent']!==null && r['Agent']!==undefined && String(r['Agent']).trim()) ? String(r['Agent']).trim() : null
   }));
   const allCalls = received.concat(leads).filter(c=>c.agent);
 
@@ -1422,7 +1423,7 @@ function processAllData(raw){
   );
 
   return { received, leads, allCalls, followups, leadHistoryActions, followupCustomers, callIndex,
-    lastReceivedByPhone, lastLeadByPhone, resolveAliases, students, payments,
+    lastReceivedByPhone, lastLeadByPhone, firstLeadByPhone, resolveAliases, students, payments,
     timeToClose, conversionSpeed, corePaidPhones, avgOfferByTrack, avgOfferOverall, debtBlocks, raw };
 }
 
@@ -2815,10 +2816,11 @@ function drillChannel(channel, field, value, title){
    (Source column, handling employee, any origin-like sheet column). */
 function leadOriginGuess(c){
   const src = String(c.source||'').toLowerCase();
-  const ag = String(c.agent||'').trim();
+  const sa = String(c.sheetAgent||'').trim();
   if(/wordpress|\bwp\b|website|web site|موقع/.test(src)) return 'WordPress / الموقع';
-  if(ag.toLowerCase()==='system') return 'تلقائي (System)';
-  return ag ? 'موظف: '+ag : 'غير معروف';
+  if(!sa) return 'غير معروف';
+  if(sa.toLowerCase()==='system') return 'السيستم (System)';
+  return 'موظف ضافه: '+sa;
 }
 function drillCampaignPaid(channel, key){
   const F = window.DATA_FULL;
@@ -2826,16 +2828,19 @@ function drillCampaignPaid(channel, key){
   const rows = list.map(c=>{
     const phones = callPhones(c);
     const pays = corePaymentsAfterFirstOfPhones(phones, c.channel);
+    // origin = the customer's EARLIEST Leads row (the one the system/employee created), using its own Agent column
+    const first = phones.map(ph=>lookupInChannelMap(ph, F.firstLeadByPhone, F.resolveAliases, true)).filter(Boolean)
+      .sort((a,b)=>(a.datetime||0)-(b.datetime||0))[0] || c;
     return { name:c.name||'—', phone:phones[0]||'—', source:c.source||'—', agent:c.agent||'—', branch:c.branch||'—',
-      date:c.datetime, guess:leadOriginGuess(c), extra:c.origin||'—',
+      date:first.datetime||c.datetime, guess:leadOriginGuess(first), extra:first.origin||c.origin||'—',
       paid:pays.reduce((x,p)=>x+p.amount,0), offer:leadOffersTotal(c) };
   }).sort((a,b)=>b.paid-a.paid);
   const iso = d=> d ? new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16).replace('T',' ') : '—';
   document.getElementById('drill-modal-title').textContent = `دافعين — الحملة: ${key} (${rows.length})`;
   document.getElementById('drill-modal-table').innerHTML = `
-    <thead><tr><th>الاسم</th><th>الموبايل</th><th>الأصل (تقدير)</th><th>Source</th><th>الموظف</th><th>الفرع</th><th>تاريخ الليد</th><th>بيانات إضافية من الشيت</th><th>المدفوع</th><th>إجمالي العرض</th></tr></thead>
+    <thead><tr><th>الاسم</th><th>الموبايل</th><th>الأصل (Agent في الشيت)</th><th>Source</th><th>الموظف (واخد الأكشن)</th><th>الفرع</th><th>تاريخ الليد</th><th>بيانات إضافية من الشيت</th><th>المدفوع</th><th>إجمالي العرض</th></tr></thead>
     <tbody>${rows.length ? rows.map(r=>`<tr><td>${esc(r.name)}</td><td dir="ltr" style="text-align:right;">${esc(r.phone)}</td><td><b>${esc(r.guess)}</b></td><td>${esc(r.source)}</td><td>${esc(r.agent)}</td><td>${esc(r.branch)}</td><td>${esc(iso(r.date))}</td><td>${esc(r.extra)}</td><td><b>${fmtMoney(r.paid)}</b></td><td>${fmtMoney(r.offer)}</td></tr>`).join('')
-      + `<tr><td colspan="10" style="color:var(--text-dim); font-size:12px;">"الأصل (تقدير)": لو الـ Source فيه website/wordpress → WordPress، ولو الموظف System → تلقائي، غير كده → اسم الموظف المسجل على الليد. ده تقدير من الأعمدة الموجودة، مش عمود "ضاف بواسطة".</td></tr>` : emptyRow(10,'لا يوجد بيانات')}</tbody>`;
+      + `<tr><td colspan="10" style="color:var(--text-dim); font-size:12px;">"الأصل" = عمود Agent في شيت الليدز لأول سجل للعميل (System أو الموظف اللي ضافه)، ولو الـ Source فيه website/wordpress بيظهر WordPress. "الموظف (واخد الأكشن)" = آخر موظف اتعامل مع الليد (Last Call By).</td></tr>` : emptyRow(10,'لا يوجد بيانات')}</tbody>`;
   document.getElementById('drill-modal-overlay').style.display = 'flex';
 }
 function openDrillModal(title, list){
