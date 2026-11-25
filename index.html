@@ -5343,8 +5343,16 @@ function marketingTemplate(){
       </div>
       <div class="panel">
         <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 🎯 إيراد داتا الفترة (Leads + Received)</span><span style="display:flex; gap:6px;"><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-cohort-table','cohort_revenue_by_language')">⬇️ Excel (اللغات)</button><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-cohort-src-table','cohort_revenue_by_source')">⬇️ Excel (المصادر)</button></span></div>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+          <b style="font-size:12.5px;">📅 فلتر التقرير ده بس — الشهر:</b>
+          <select id="cf-month" style="width:auto; min-width:190px;" onchange="onCfMonth(this.value)"></select>
+          <b style="font-size:12.5px;">من:</b><input type="date" id="cf-from" style="width:auto;" onchange="onCfDates()">
+          <b style="font-size:12.5px;">إلى:</b><input type="date" id="cf-to" style="width:auto;" onchange="onCfDates()">
+          <button class="btn" style="padding:4px 10px; font-size:11px;" onclick="clearCf()">✖ مسح (يرجع للفلتر العام)</button>
+        </div>
+        <div id="cf-effective" class="badge-note" style="margin-bottom:10px;"></div>
         <div class="badge-note" style="line-height:1.9;">
-          <b>داتا الفترة</b> = العملاء (من غير تكرار) اللي <u>أول تواصل ليهم</u> في Leads أو Received كان جوه الفترة المختارة في فلتر التقارير فوق. بنفتّش عليهم في شيت الدفع، و<b>الإيراد</b> = دفعات <b>عميل جديد (New Comer)</b> بتاعتهم اللي اتدفعت <u>جوه نفس الفترة</u> وبتاريخ أول تواصل أو بعده. يعني مفيش فلوس من داتا شهور قديمة. <b>القناة</b> = القناة اللي فيها <u>أول</u> مكالمة للعميل. <b>إجمالي العروض</b> = قيمة البيع الكاملة للعروض اللي دفعة حجزها (أول دفعة) في الفترة، والـ<b>الإيراد</b> = المتحصل فعلاً منها، فالفرق هو المتبقي على العملاء. دوس على أي رقم دفع/إيراد/عروض تشوف الدفعات.
+          <b>داتا الفترة</b> = العملاء (من غير تكرار) اللي <u>أول تواصل ليهم</u> في Leads أو Received كان جوه الفترة (فلتر التقرير ده لو اتحدد، وإلا فلتر التقارير العام فوق). بنفتّش عليهم في شيت الدفع، و<b>الإيراد</b> = دفعات <b>عميل جديد (New Comer)</b> بتاعتهم اللي اتدفعت <u>جوه نفس الفترة</u> وبتاريخ أول تواصل أو بعده. يعني مفيش فلوس من داتا شهور قديمة. <b>القناة</b> = القناة اللي فيها <u>أول</u> مكالمة للعميل. <b>إجمالي العروض</b> = قيمة البيع الكاملة للعروض اللي دفعة حجزها (أول دفعة) في الفترة، والـ<b>الإيراد</b> = المتحصل فعلاً منها، فالفرق هو المتبقي على العملاء. دوس على أي رقم دفع/إيراد/عروض تشوف الدفعات.
         </div>
         <div style="overflow:auto;"><table id="mkt-cohort-table"></table></div>
         <div class="panel-title" style="margin-top:16px;"><span class="bar"></span> حسب المصدر (أول تواصل)</div>
@@ -5753,10 +5761,43 @@ function mktCohortList(){
   window.__mktCohort = {F, list};
   return list;
 }
+/* Own filter for the cohort report: empty => follows the general reports filter (MKT_RPT); set => uses its own period. */
+window.MKT_CF = window.MKT_CF || {from:null, to:null, month:''};
+function mktCohortPeriod(){
+  const C = window.MKT_CF;
+  return (C.from && C.to) ? {from:C.from, to:C.to, own:true} : {from:window.MKT_RPT.from, to:window.MKT_RPT.to, own:false};
+}
+function renderMktCohortFilter(){
+  const C = window.MKT_CF, sel = document.getElementById('cf-month'); if(!sel) return;
+  const months = rptMonths().slice().reverse();
+  sel.innerHTML = '<option value="">— فاضي: نفس الفلتر العام —</option>' + months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('') + (C.month==='custom' ? '<option value="custom">فترة مخصصة</option>' : '');
+  sel.value = C.month || '';
+  document.getElementById('cf-from').value = C.from || '';
+  document.getElementById('cf-to').value = C.to || '';
+  const P = mktCohortPeriod(), eff = document.getElementById('cf-effective');
+  if(eff) eff.innerHTML = P.own ? `الفترة المستخدمة: <b>${P.from}</b> → <b>${P.to}</b> (فلتر التقرير ده)` : `الفترة المستخدمة: <b>${P.from}</b> → <b>${P.to}</b> (من الفلتر العام اللي فوق، لأن فلتر التقرير ده فاضي)`;
+}
+function onCfMonth(v){
+  const C = window.MKT_CF;
+  if(v==='custom') return;
+  if(!v){ clearCf(); return; }
+  C.from = v+'-01'; C.to = mktMonthEnd(v); C.month = v; renderMktCohort();
+}
+function onCfDates(){
+  const C = window.MKT_CF;
+  let f = document.getElementById('cf-from').value, t = document.getElementById('cf-to').value;
+  if(!f && !t){ clearCf(); return; }
+  if(!f || !t) return;
+  if(f > t){ const x=f; f=t; t=x; }
+  C.from = f; C.to = t; C.month = 'custom'; renderMktCohort();
+}
+function clearCf(){ const C = window.MKT_CF; C.from = null; C.to = null; C.month = ''; renderMktCohort(); }
+
 function renderMktCohort(){
   const t1 = document.getElementById('mkt-cohort-table'), t2 = document.getElementById('mkt-cohort-src-table');
   if(!t1 || !window.MKT_RPT || !window.MKT_RPT.from) return;
-  const S = window.MKT_RPT, inP = d=>{ const k = dayKey(d); return k>=S.from && k<=S.to; };
+  renderMktCohortFilter();
+  const S = mktCohortPeriod(), inP = d=>{ const k = dayKey(d); return k>=S.from && k<=S.to; };
   const custs = mktCohortList().filter(c=>inP(c.date)).map(c=>{
     const pays = c.after.filter(p=> p.date && inP(p.date));
     return Object.assign({}, c, {pays, paid: pays.length>0, rev: pays.reduce((x,p)=>x+p.amount,0), offers: offersTotalOfPayments(pays)});
@@ -5773,7 +5814,8 @@ function renderMktCohort(){
   const money = (title, l, bold)=> l.length ? `${reg(title, payList(l))}${bold?'<b>':''}${fmtMoney(Math.round(sum(l)))}${bold?'</b>':''}</span>` : '—';
   const moneyOff = (title, l, bold)=> sumOff(l) ? `${reg(title, payList(l))}${bold?'<b>':''}${fmtMoney(Math.round(sumOff(l)))}${bold?'</b>':''}</span>` : '—';
   const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
-  const spendOf = c=> c.k==='total' ? rptTotalSpend() : (c.k==='other' ? 0 : rptSpend('meta:'+c.k));
+  const spObj = (loadManual('mktAdsSpend',{})[S.from+'|'+S.to]) || {};
+  const spendOf = c=> c.k==='total' ? Object.values(spObj).reduce((x,v)=>x+(parseFloat(v)||0),0) : (c.k==='other' ? 0 : (spObj['meta:'+c.k]||0));
   const star = '<span style="color:var(--red);"> *</span>';
   const row = (label, fn)=>`<tr><td style="background:var(--panel-2);"><b>${label}</b></td>${cols.map(c=>`<td>${fn(c)}</td>`).join('')}</tr>`;
   t1.innerHTML = `<thead><tr><th>البند</th>${cols.map(c=>`<th>${c.n}</th>`).join('')}</tr></thead><tbody>
