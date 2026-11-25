@@ -4225,7 +4225,7 @@ function employeesTemplate(){
 
     <div class="panel">
       <div class="panel-title"><span class="bar"></span> الفلوس والتارجت لكل موظف</div>
-      <div class="badge-note">🟢 التارجت = 70% فأكتر &nbsp;|&nbsp; 🔴 أقل من 70% &nbsp;&nbsp;•&nbsp;&nbsp; التارجت بيتحفظ في المتصفح أوتوماتيك</div>
+      <div class="badge-note">🟢 التارجت = 75% فأكتر &nbsp;|&nbsp; 🔴 أقل من 75% &nbsp;&nbsp;•&nbsp;&nbsp; التارجت بيتحفظ في المتصفح أوتوماتيك</div>
     <div class="badge-note" style="line-height:1.9;">الفلوس = دفعات <b>New Comer + Rest Of Money</b> (نفس شهر العرض) المنسوبة للموظف اللي كان <b>آخر واحد كلّم العميل</b>، بتاريخ دفع جوه الفترة — يعني بتشمل أي عميل دفع في الشهر ده حتى لو أول تواصل معاه من شهور قديمة. الصف ⚠️ = نفس نوع الدفعات بس مفيش مكالمة بنفس رقمها فمش ممكن تتنسب لموظف.</div>
       <div style="overflow:auto;"><table id="emp-money-table"></table></div>
     </div>
@@ -4410,7 +4410,7 @@ function renderEmployees(){
 
   const mRows = moneyRows.map((r,i)=>{
     let badge = i===0?'gold':i===1?'silver':i===2?'bronze':'';
-    const targetColor = r.targetPct===null ? 'var(--text-dim)' : (r.targetPct>=70 ? 'var(--green)' : 'var(--red)');
+    const targetColor = r.targetPct===null ? 'var(--text-dim)' : (r.targetPct>=75 ? 'var(--green)' : 'var(--red)');
     const detailId = 'emp-detail-'+i;
     const detailRows = r.empPayments.slice().sort((a,b)=>b.amount-a.amount).map(p=>
       `<tr><td>${esc(p.studentName||'—')}</td><td style="direction:ltr; text-align:left;">${esc(p.phone||'—')}</td><td>${fmtMoney(p.amount)}</td><td>${p.date? p.date.toLocaleDateString('en-GB'):'—'}</td><td style="font-size:11px; color:var(--text-dim);">${esc(p.paymentType||'')}</td></tr>`
