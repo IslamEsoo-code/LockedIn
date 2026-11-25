@@ -236,6 +236,8 @@ try{ document.documentElement.setAttribute('data-theme', JSON.parse(localStorage
     .panel{ break-inside:avoid; box-shadow:none; }
     body{ background:#fff; }
   }
+  .money-note{ display:block; font-size:12px; line-height:1.9; color:var(--text); background:rgba(245,158,11,.10); border:1px solid rgba(245,158,11,.35); padding:9px 13px; border-radius:8px; margin:8px 0 14px; }
+  .money-note b{ color:var(--text); }
 </style>
 </head>
 <body>
@@ -4535,7 +4537,7 @@ function renderEmployeeAdvancedReports(){
   const rows=employees.map(emp=>{
     const calls=D.allCalls.filter(c=>c.agent===emp), unique=uniqueCustomerCalls(calls);
     const paid=paidFor(calls), registered=registeredFor(calls);
-    const revenue=D.payments.filter(p=>p.attributedEmployee===emp).reduce((s,p)=>s+p.amount,0);
+    const revenue=D.payments.filter(p=>p.countsAsEmployeeRevenue && p.attributedEmployee===emp).reduce((s,p)=>s+p.amount,0);
     return {emp,records:calls.length,customers:unique.length,registered:registered.length,paid:paid.length,revenue};
   }).filter(r=>r.records).sort((a,b)=>b.revenue-a.revenue||b.customers-a.customers);
   const cc=document.getElementById('call-conversion-table'), uc=document.getElementById('customer-conversion-table');
@@ -5302,7 +5304,7 @@ function marketingTemplate(){
         <div style="overflow:auto;"><table id="mkt-new-table"></table></div>
       </div>
       <div class="panel">
-        <div class="panel-title"><span class="bar"></span> 📅 فلتر التقارير التلاتة اللي تحت (مستقل عن فلتر جدول الإعلانات)</div>
+        <div class="panel-title"><span class="bar"></span> 📅 فلتر التقارير اللي تحت (مستقل عن فلتر جدول الإعلانات)</div>
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
           <b style="font-size:12.5px;">الشهر:</b>
           <select id="rpt-month" style="width:auto; min-width:150px;" onchange="onRptMonth(this.value)"></select>
@@ -5311,7 +5313,7 @@ function marketingTemplate(){
           <b style="font-size:12.5px;">إلى تاريخ:</b>
           <input type="date" id="rpt-to" style="width:auto;" onchange="onRptDates()">
         </div>
-        <div class="badge-note" style="margin-top:10px;">التقارير دي (KPI الإعلانات حسب اللغة، إيراد اللغات، الزوار حسب الفرع) بتتحسب على الفترة اللي هنا بس، ومش متأثرة بفلتر الجدول اللي فوق ولا بفلاتر أول الصفحة. الصرف بتدخله جوه جدول الـ KPI لنفس الفترة دي.</div>
+        <div class="badge-note" style="margin-top:10px;">التقارير دي (KPI الإعلانات حسب اللغة، إيراد اللغات، الزوار حسب الفرع، إيراد داتا الفترة) بتتحسب على الفترة اللي هنا بس، ومش متأثرة بفلتر الجدول اللي فوق ولا بفلاتر أول الصفحة. الصرف بتدخله جوه جدول الـ KPI لنفس الفترة دي.</div>
       </div>
       <div class="panel">
         <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 📊 KPI الإعلانات حسب اللغة</span><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-kpi-table','ads_kpi_by_language')">⬇️ Excel</button></div>
@@ -5336,6 +5338,15 @@ function marketingTemplate(){
           كل عميل راح الفرع وتسجل (شيت Students) في الفترة المختارة، بيتعد مرة واحدة. <b>Paid</b> = دفع دفعة عميل جديد <u>جوه الفترة المختارة</u> (نفس الشهر)، <b>Not reg</b> = ما دفعش في الفترة دي. <b>CR paid</b> = Paid ÷ Total الفرع (الأحمر = أقل من 60%). <b>CR from grand total</b> = Paid الفرع ÷ إجمالي كل الزوار. 👆 دوس على أي رقم تشوف العملاء.
         </div>
         <div style="overflow:auto;"><table id="mkt-branch-table"></table></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between;"><span><span class="bar"></span> 🎯 إيراد داتا الفترة (Leads + Received)</span><span style="display:flex; gap:6px;"><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-cohort-table','cohort_revenue_by_language')">⬇️ Excel (اللغات)</button><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="exportTableToExcel('mkt-cohort-src-table','cohort_revenue_by_source')">⬇️ Excel (المصادر)</button></span></div>
+        <div class="badge-note" style="line-height:1.9;">
+          <b>داتا الفترة</b> = العملاء (من غير تكرار) اللي <u>أول تواصل ليهم</u> في Leads أو Received كان جوه الفترة المختارة في فلتر التقارير فوق. بنفتّش عليهم في شيت الدفع، و<b>الإيراد</b> = دفعات <b>عميل جديد (New Comer)</b> بتاعتهم اللي اتدفعت <u>جوه نفس الفترة</u> وبتاريخ أول تواصل أو بعده. يعني مفيش فلوس من داتا شهور قديمة. <b>القناة</b> = القناة اللي فيها <u>أول</u> مكالمة للعميل. <b>إجمالي العروض</b> = قيمة البيع الكاملة للعروض اللي دفعة حجزها (أول دفعة) في الفترة، والـ<b>الإيراد</b> = المتحصل فعلاً منها، فالفرق هو المتبقي على العملاء. دوس على أي رقم دفع/إيراد/عروض تشوف الدفعات.
+        </div>
+        <div style="overflow:auto;"><table id="mkt-cohort-table"></table></div>
+        <div class="panel-title" style="margin-top:16px;"><span class="bar"></span> حسب المصدر (أول تواصل)</div>
+        <div style="overflow:auto; max-height:420px;"><table id="mkt-cohort-src-table"></table></div>
       </div>
     </div>
 
@@ -5632,7 +5643,7 @@ function onRptDates(){
 }
 function renderMktReports(){
   rptInit();
-  [renderMktKpiLang, renderMktLangRevenue, renderMktBranchTable].forEach(fn=>{ try{ fn(); }catch(e){ console.error('mkt report failed', e); } });
+  [renderMktKpiLang, renderMktLangRevenue, renderMktBranchTable, renderMktCohort].forEach(fn=>{ try{ fn(); }catch(e){ console.error('mkt report failed', e); } });
 }
 /* New-sale payments of a student that fall INSIDE the selected ads period (same-month rule: an old payment never counts). */
 function mktPaysInPeriod(v){
@@ -5715,6 +5726,81 @@ function renderMktKpiLang(){
     ${row('AOV (Revenue / Paid)', c=> div(c.revenue,c.paidN,v=>Math.round(v).toLocaleString('en-US')))}
   </tbody>`;
 }
+/* Cohort of the selected period: unique customers (Leads + Received) whose FIRST contact is in the period,
+   looked up in the payments sheet. Money = New Comer payments dated on/after the first contact AND inside the period. */
+function mktCohortList(){
+  const F = window.DATA_FULL;
+  if(window.__mktCohort && window.__mktCohort.F===F) return window.__mktCohort.list;
+  const clusters = new Map(); let anon = 0;
+  F.received.concat(F.leads).forEach(c=>{
+    if(!c.datetime) return;
+    const ids = new Set(); callPhones(c).forEach(ph=> F.resolveAliases(ph).forEach(a=>ids.add(a)));
+    const cid = ids.size ? Array.from(ids).sort()[0] : ('anon-'+(anon++));
+    let g = clusters.get(cid);
+    if(!g){ g = {first:c, langRec:null, ids:new Set()}; clusters.set(cid, g); }
+    else if(c.datetime < g.first.datetime) g.first = c;
+    ids.forEach(i=>g.ids.add(i));
+    if(classifyCourse(c.course) && (!g.langRec || c.datetime < g.langRec.datetime)) g.langRec = c;
+  });
+  const list = [];
+  clusters.forEach(g=>{
+    list.push({ date:g.first.datetime, channel:g.first.channel, source:g.first.source||'غير معروف',
+      lang: g.langRec ? classifyCourse(g.langRec.course) : null,
+      after: corePaymentsAfterFirstOfPhones(Array.from(g.ids)) });
+  });
+  window.__mktCohort = {F, list};
+  return list;
+}
+function renderMktCohort(){
+  const t1 = document.getElementById('mkt-cohort-table'), t2 = document.getElementById('mkt-cohort-src-table');
+  if(!t1 || !window.MKT_RPT || !window.MKT_RPT.from) return;
+  const S = window.MKT_RPT, inP = d=>{ const k = dayKey(d); return k>=S.from && k<=S.to; };
+  const custs = mktCohortList().filter(c=>inP(c.date)).map(c=>{
+    const pays = c.after.filter(p=> p.date && inP(p.date));
+    return Object.assign({}, c, {pays, paid: pays.length>0, rev: pays.reduce((x,p)=>x+p.amount,0), offers: offersTotalOfPayments(pays)});
+  });
+  const langOf = c=> (c.lang==='English'||c.lang==='German') ? c.lang : 'other';
+  const cols = [{k:'English', n:'English'},{k:'German', n:'German'},{k:'other', n:'لغة غير محددة'},{k:'total', n:'Total'}];
+  const pick = (c, f)=> custs.filter(x=> (c.k==='total' || langOf(x)===c.k) && (!f || f(x)));
+  const payList = l=> l.reduce((a,x)=>a.concat(x.pays), []);
+  const sum = l=> l.reduce((x,y)=>x+y.rev,0);
+  const sumOff = l=> l.reduce((x,y)=>x+(y.offers||0),0);
+  window.__mktPayLists = window.__mktPayLists || [];
+  const reg = (title, pl)=> `<span class="drill-row" style="cursor:pointer;" onclick='openMktPayments(${JSON.stringify(title)}, window.__mktPayLists[${window.__mktPayLists.push(pl)-1}])'>`;
+  const cntPaid = (title, l, bold)=> l.length ? `${reg(title, payList(l))}${bold?'<b>':''}${fmtNum(l.length)}${bold?'</b>':''}</span>` : '0';
+  const money = (title, l, bold)=> l.length ? `${reg(title, payList(l))}${bold?'<b>':''}${fmtMoney(Math.round(sum(l)))}${bold?'</b>':''}</span>` : '—';
+  const moneyOff = (title, l, bold)=> sumOff(l) ? `${reg(title, payList(l))}${bold?'<b>':''}${fmtMoney(Math.round(sumOff(l)))}${bold?'</b>':''}</span>` : '—';
+  const pct = (n,d)=> d ? fmtPct(n/d*100) : '—';
+  const spendOf = c=> c.k==='total' ? rptTotalSpend() : (c.k==='other' ? 0 : rptSpend('meta:'+c.k));
+  const star = '<span style="color:var(--red);"> *</span>';
+  const row = (label, fn)=>`<tr><td style="background:var(--panel-2);"><b>${label}</b></td>${cols.map(c=>`<td>${fn(c)}</td>`).join('')}</tr>`;
+  t1.innerHTML = `<thead><tr><th>البند</th>${cols.map(c=>`<th>${c.n}</th>`).join('')}</tr></thead><tbody>
+    ${row('👥 عملاء داتا الفترة (أول تواصل في الفترة)', c=> `<b>${fmtNum(pick(c).length)}</b>`)}
+    ${row('— أول تواصل Leads', c=> fmtNum(pick(c,x=>x.channel==='Leads').length))}
+    ${row('— أول تواصل Received', c=> fmtNum(pick(c,x=>x.channel==='Received').length))}
+    ${row('✅ دفعوا (جوه الفترة)', c=> cntPaid(c.n+' — دفعوا', pick(c,x=>x.paid)))}
+    ${row('— دفعوا من Leads', c=> cntPaid(c.n+' — دفعوا (أول تواصل Leads)', pick(c,x=>x.paid&&x.channel==='Leads')))}
+    ${row('— دفعوا من Received', c=> cntPaid(c.n+' — دفعوا (أول تواصل Received)', pick(c,x=>x.paid&&x.channel==='Received')))}
+    ${row('🎯 نسبة التحويل', c=> `<b>${pct(pick(c,x=>x.paid).length, pick(c).length)}</b>`)}
+    ${row('💰 إيراد داتا الفترة (New Comer)', c=> money(c.n+' — إيراد داتا الفترة', pick(c,x=>x.paid), true))}
+    ${row('— إيراد Leads (أول تواصل)', c=> money(c.n+' — إيراد Leads', pick(c,x=>x.paid&&x.channel==='Leads')))}
+    ${row('— إيراد Received (أول تواصل)', c=> money(c.n+' — إيراد Received', pick(c,x=>x.paid&&x.channel==='Received')))}
+    ${row('🧾 إجمالي العروض (قيمة البيع الكاملة)', c=> moneyOff(c.n+' — إجمالي العروض', pick(c,x=>x.paid), true))}
+    ${row('— عروض Leads (أول تواصل)', c=> moneyOff(c.n+' — عروض Leads', pick(c,x=>x.paid&&x.channel==='Leads')))}
+    ${row('— عروض Received (أول تواصل)', c=> moneyOff(c.n+' — عروض Received', pick(c,x=>x.paid&&x.channel==='Received')))}
+    ${row('نسبة المتحصل من العروض (الإيراد ÷ إجمالي العروض)', c=> { const l = pick(c,x=>x.paid); return sumOff(l) ? fmtPct(sum(l)/sumOff(l)*100) : '—'; })}
+    ${row('متوسط الدفع للعميل الدافع', c=> { const l = pick(c,x=>x.paid); return l.length ? fmtMoney(Math.round(sum(l)/l.length)) : '—'; })}
+    ${row('Spend', c=> spendOf(c) ? fmtMoney(Math.round(spendOf(c)))+star : '—')}
+    ${row('ROAS (إيراد داتا الفترة ÷ Spend)', c=> spendOf(c) && sum(pick(c,x=>x.paid)) ? (sum(pick(c,x=>x.paid))/spendOf(c)).toFixed(2)+star : '—')}
+  </tbody>`;
+  if(t2){
+    const m = new Map(); custs.forEach(x=>{ if(!m.has(x.source)) m.set(x.source, []); m.get(x.source).push(x); });
+    const ent = Array.from(m.entries()).sort((a,b)=>b[1].length-a[1].length);
+    const line = (k, l, bold)=>{ const pd = l.filter(x=>x.paid); return `<tr${bold?' style="border-top:2px solid var(--border);"':''}><td>${bold?'<b>':''}${esc(k)}${bold?'</b>':''}</td><td>${fmtNum(l.length)}</td><td>${cntPaid(k+' — دفعوا', pd)}</td><td style="font-weight:700;">${pct(pd.length, l.length)}</td><td>${money(k+' — إيراد', pd, true)}</td><td>${moneyOff(k+' — إجمالي العروض', pd)}</td></tr>`; };
+    t2.innerHTML = `<thead><tr><th>المصدر</th><th>عملاء الداتا</th><th>دفعوا</th><th>نسبة التحويل</th><th>الإيراد (المتحصل)</th><th>إجمالي العروض</th></tr></thead><tbody>${ent.length ? ent.map(([k,l])=>line(k,l)).join('') + line('الإجمالي', custs, true) : emptyRow(6,'لا توجد بيانات')}</tbody>`;
+  }
+}
+
 function renderMktBranchTable(){
   const table = document.getElementById('mkt-branch-table'); if(!table || !window.MKT_RPT || !window.MKT_RPT.from) return;
   const vis = mktVisitorsInRange();
@@ -6329,7 +6415,7 @@ function renderMarketing(){
     return sources.map(src=>{
       const srcCalls = allCalls.filter(c=>c.source===src);
       const reg = srcCalls.filter(c=>c.regStatus==='Registered'||c.regStatus==='Paid');
-      const revenue = payments.filter(p=>p.attributedSource===src && p.countsAsEmployeeRevenue).reduce((s,p)=>s+p.amount,0);
+      const revenue = payments.filter(p=>p.countsAsEmployeeRevenue && payFirstSource(p)===src).reduce((s,p)=>s+p.amount,0);
       const monthSpend = (curMonth && spend[curMonth]) ? (spend[curMonth][src]||0) : 0;
       const cpa = reg.length ? monthSpend/reg.length : 0;
       const roas = monthSpend ? revenue/monthSpend : null;
@@ -6371,7 +6457,7 @@ function renderMarketing(){
 
   // ---- Monthly spend vs attributed revenue ----
   window.renderSpendRevChart = function(){
-    const revByMonth = sumBy(payments.filter(p=>p.countsAsEmployeeRevenue && p.attributedSource), p=>p.month, p=>p.amount);
+    const revByMonth = sumBy(payments.filter(p=>p.countsAsEmployeeRevenue && payFirstSource(p)), p=>p.month, p=>p.amount);
     const spendMonths = Object.keys(spend||{}).filter(m=> spend[m] && Object.values(spend[m]).some(v=>v>0) && revByMonth.has(m)).sort();
     const chartMonths = spendMonths.slice(-6);
     makeChart('mkt-spend-rev-chart', {
@@ -6395,7 +6481,7 @@ function renderMarketing(){
     calls.forEach(c=>[c.mobile1,c.mobile2].forEach(ph=>{ if(ph) phones.add(ph); }));
     const paidPhones = new Set();
     let revenue=0;
-    payments.filter(p=>p.attributedSource===src && p.countsAsEmployeeRevenue).forEach(p=>{
+    payments.filter(p=>p.countsAsEmployeeRevenue && payFirstSource(p)===src).forEach(p=>{
       if(p.phone) paidPhones.add(p.phone); revenue+=p.amount;
     });
     const spendVal = (curMonth && spend[curMonth]) ? (spend[curMonth][src]||0) : 0;
@@ -6410,7 +6496,7 @@ function renderMarketing(){
   const branchStats=branches.map(branch=>{
     const calls=allCalls.filter(c=>c.branch===branch);
     const phones=new Set(); calls.forEach(c=>[c.mobile1,c.mobile2].forEach(ph=>{if(ph) phones.add(ph);}));
-    const bp=payments.filter(p=>p.attributedBranch===branch && p.countsAsEmployeeRevenue);
+    const bp=payments.filter(p=>p.countsAsEmployeeRevenue && payFirstBranch(p)===branch);
     const paid=new Set(bp.map(p=>p.phone).filter(Boolean));
     const revenue=bp.reduce((a,p)=>a+p.amount,0);
     const registered=uniqueCustomerCount(calls.filter(c=>c.regStatus==='Registered'||c.regStatus==='Paid'));
@@ -6530,7 +6616,7 @@ function renderBusinessDecisionReports(){
      of the customer's globally last contact (p.attributedChannel), so
      Received + Leads + Unattributed = Total company revenue.
 ========================================================= */
-window.CMP = window.CMP || {aFrom:null, aTo:null, bFrom:null, bTo:null, language:'all', employee:'all', channel:'all', mode:'cum', cohortChannel:'all', cohortPay:'new'};
+window.CMP = window.CMP || {aFrom:null, aTo:null, bFrom:null, bTo:null, language:'all', employee:'all', channel:'all', mode:'cum'};
 const CMP_A = '#7c5cff', CMP_B = '#ec4899';
 
 function cmpKeyToDate(k){ const p=k.split('-').map(Number); return new Date(p[0], p[1]-1, p[2]); }
@@ -6601,54 +6687,17 @@ function cmpCallPass(c){
 }
 function cmpValidCall(c){ return !!c.agent && !isExcludedAgent(c.agent) && !!c.datetime && cmpCallPass(c); }
 
-/* Channel of the customer's FIRST-ever call (Leads or Received) — used to attribute a payment to a channel. null = no call found. */
-function payFirstChannel(p){
-  if(p.__fc!==undefined) return p.__fc;
+/* Channel of the customer's FIRST-ever call (Leads or Received); null = no call found for that phone. */
+function payFirstCall(p){
+  if(p.__fcall!==undefined) return p.__fcall;
   const F = window.DATA_FULL; let best = null;
   if(p.phone) F.resolveAliases(p.phone).forEach(a=>{ (F.callIndex.get(a)||[]).forEach(x=>{ if(x.datetime && (!best || x.datetime < best.datetime)) best = x; }); });
-  return (p.__fc = best ? best.channel : null);
+  return (p.__fcall = best);
 }
-
-/* ---- Cohort ("داتا الفترة"): customers whose FIRST contact ever (Leads or Received) falls in the period,
-   then their payments are looked up in the payments sheet (payments dated on/after the day of that first contact,
-   even if the payment itself is in a later month). ---- */
-function cmpCohortAll(){
-  const F = window.DATA_FULL;
-  if(window.__cmpCohort && window.__cmpCohort.F===F) return window.__cmpCohort.list;
-  const clusters = new Map(); let anon = 0;
-  const add = c=>{
-    if(!c.datetime || !c.agent || isExcludedAgent(c.agent)) return;
-    const ids = new Set(); callPhones(c).forEach(ph=> F.resolveAliases(ph).forEach(a=>ids.add(a)));
-    const cid = ids.size ? Array.from(ids).sort()[0] : ('anon-'+(anon++));
-    let g = clusters.get(cid);
-    if(!g){ g = {first:c, last:c, phones:new Set()}; clusters.set(cid, g); }
-    else { if(c.datetime < g.first.datetime) g.first = c; if(c.datetime >= g.last.datetime) g.last = c; }
-    callPhones(c).forEach(ph=>g.phones.add(ph));
-  };
-  (F.received||[]).forEach(add); (F.leads||[]).forEach(add);
-  const list = [];
-  clusters.forEach(g=>{
-    list.push({ date:g.first.datetime, day:dayKey(g.first.datetime), dayStart:new Date(g.first.datetime.getFullYear(), g.first.datetime.getMonth(), g.first.datetime.getDate()),
-      channel:g.first.channel, lang:classifyCourse(g.first.course), agent:g.last.agent, phones:Array.from(g.phones) });
-  });
-  window.__cmpCohort = {F, list};
-  return list;
-}
-function cmpAllPayIndex(){
-  const F = window.DATA_FULL;
-  if(!window.__allPayIdx || window.__allPayIdx.F!==F){
-    const idx = new Map();
-    (F.payments||[]).filter(p=>p.phone && p.amount>0).forEach(p=>{ F.resolveAliases(p.phone).forEach(a=>{ if(!idx.has(a)) idx.set(a,new Set()); idx.get(a).add(p); }); });
-    window.__allPayIdx = {F, idx};
-  }
-  return window.__allPayIdx.idx;
-}
-function cmpCohortPays(cust, scope){
-  if(scope!=='all') return corePaymentsOfPhones(cust.phones).filter(p=>p.date && p.date>=cust.dayStart);
-  const idx = cmpAllPayIndex(), F = window.DATA_FULL, seen = new Set();
-  cust.phones.forEach(ph=> F.resolveAliases(ph).forEach(a=>{ const s=idx.get(a); if(s) s.forEach(p=>seen.add(p)); }));
-  return Array.from(seen).filter(p=>p.date && p.date>=cust.dayStart);
-}
+function payFirstChannel(p){ const c = payFirstCall(p); return c ? c.channel : null; }
+/* Source / branch of the customer's FIRST call. No call found -> source null, branch falls back to the payment's own branch. */
+function payFirstSource(p){ const c = payFirstCall(p); return c ? (c.source||null) : null; }
+function payFirstBranch(p){ const c = payFirstCall(p); return c ? (c.branch || p.location) : p.location; }
 
 /* Registered visitors (same definition as the Registered الفروع page) after the comparison's language / employee filters. */
 function cmpVisitors(){
@@ -6672,14 +6721,6 @@ function cmpStats(from, to){
   const recvUnique = uniqueCustomerCount(recv), leadsUnique = uniqueCustomerCount(leads);
   const recvPaid = uniquePaidCount(recv), leadsPaid = uniquePaidCount(leads);
   const leadsAnswered = leads.filter(c=>leadResultIs(c,'Answer')).length;
-  // Cohort: customers whose first-ever contact is inside the period (+ own filters: first-call channel, payment scope)
-  const cohortScope = C.cohortPay || 'new', cohortCh = C.cohortChannel || 'all';
-  const coAll = cmpCohortAll().filter(x=> inR(x.date)
-    && (C.language==='all' || x.lang===C.language)
-    && (C.employee==='all' || x.agent===C.employee)
-    && (cohortCh==='all' || x.channel===cohortCh));
-  const coCalc = list=>{ let paid=0, rev=0; list.forEach(x=>{ const ps = cmpCohortPays(x, cohortScope); if(ps.length){ paid++; rev += ps.reduce((s,p)=>s+p.amount,0); } }); return {n:list.length, paid, rev}; };
-  const coT = coCalc(coAll), coR = coCalc(coAll.filter(x=>x.channel==='Received')), coL = coCalc(coAll.filter(x=>x.channel==='Leads'));
   const VV = cmpVisitors();
   const vis = VV.reg.filter(v=> inR(v.date)), visOrg = VV.org.filter(v=> inR(v.date));
   const visPaid = vis.filter(v=>v.paid), visOrgPaid = visOrg.filter(v=>v.paid);
@@ -6716,9 +6757,6 @@ function cmpStats(from, to){
     totalUnique: uniqueCustomerCount(recv.concat(leads)),
     avgDailyCalls: (recv.length + leads.length)/days,
     students,
-    coTotal: coT.n, coPaid: coT.paid, coConv: coT.n ? coT.paid/coT.n*100 : 0, coRev: coT.rev, coAvg: coT.paid ? coT.rev/coT.paid : 0,
-    coRecvN: coR.n, coRecvPaid: coR.paid, coRecvConv: coR.n ? coR.paid/coR.n*100 : 0, coRecvRev: coR.rev,
-    coLeadsN: coL.n, coLeadsPaid: coL.paid, coLeadsConv: coL.n ? coL.paid/coL.n*100 : 0, coLeadsRev: coL.rev,
     visTotal: vis.length, visPaid: visPaid.length, visConv: vis.length ? visPaid.length/vis.length*100 : 0,
     visRevenue: visPaid.reduce((s,v)=>s+v.revenue,0),
     visOrganic: visOrg.length, visOrganicPaid: visOrgPaid.length,
@@ -6748,7 +6786,7 @@ function compareTemplate(){
   const dateIn = (id, key)=> `<input type="date" id="${id}" style="width:auto;" value="${C[key]||''}" onchange="onCmpChange('${key}', this.value)">`;
   return `
     ${pageHeader('المقارنات', 'قارن أي فترتين: الإيراد (إجمالي / ريسيفد / ليدز) وعدد المكالمات، وشوف تطور الشهور')}
-    <div class="badge-note">الصفحة دي مستقلة عن فلتر الشهور اللي فوق — بتقارن أي فترتين من كل الداتا. الإيراد حسب القناة = القناة اللي كان فيها <b>أول</b> تواصل مع العميل (كل دفعة بتتحسب مرة واحدة، فمجموع ريسيفد + ليدز + غير منسوب = إجمالي إيراد الشركة). وقسم "إيراد داتا الفترة" بياخد عملاء أول تواصل ليهم جوا الفترة ويدور على دفعاتهم (حتى لو اتدفعت بعد الفترة)</div>
+    <div class="badge-note">الصفحة دي مستقلة عن فلتر الشهور اللي فوق — بتقارن أي فترتين من كل الداتا. الإيراد حسب القناة = القناة اللي كان فيها <b>أول</b> تواصل مع العميل (كل دفعة بتتحسب مرة واحدة، فمجموع ريسيفد + ليدز + غير منسوب = إجمالي إيراد الشركة)</div>
     <div class="panel" style="padding:14px 18px;">
       <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:12px;">
         <div style="display:flex; align-items:center; gap:8px;">
@@ -6778,10 +6816,6 @@ function compareTemplate(){
           <select style="width:auto; min-width:130px;" onchange="onCmpChange('employee', this.value)">${opt('all','كل الموظفين',C.employee)}${employees.map(e=>opt(e,e,C.employee)).join('')}</select></div>
         <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12.5px; color:var(--text-dim);">📡 القناة (للرسومات اليومية)</span>
           <select style="width:auto;" onchange="onCmpChange('channel', this.value)">${opt('all','الكل',C.channel)}${opt('Received','Received',C.channel)}${opt('Leads','Leads',C.channel)}</select></div>
-        <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12.5px; color:var(--text-dim);">🎯 داتا الفترة — القناة (أول تواصل)</span>
-          <select style="width:auto;" onchange="onCmpChange('cohortChannel', this.value)">${opt('all','Leads + Received',C.cohortChannel||'all')}${opt('Received','Received بس',C.cohortChannel||'all')}${opt('Leads','Leads بس',C.cohortChannel||'all')}</select></div>
-        <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12.5px; color:var(--text-dim);">💳 داتا الفترة — نوع الدفعات</span>
-          <select style="width:auto;" onchange="onCmpChange('cohortPay', this.value)">${opt('new','New Comer بس',C.cohortPay||'new')}${opt('all','كل أنواع الدفعات',C.cohortPay||'new')}</select></div>
         <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:12.5px; color:var(--text-dim);">📈 العرض</span>
           <select style="width:auto;" onchange="onCmpChange('mode', this.value)">${opt('cum','تراكمي',C.mode)}${opt('daily','يومي',C.mode)}</select></div>
       </div>
@@ -6978,13 +7012,6 @@ function renderCompare(){
       ['أخرى (كتب / شهادات / ...)','revOther','money'], ['عدد الدفعات','payCount','num'],
       ['متوسط الدفعة','avgPay','money'], ['عملاء دافعين (أرقام فريدة)','payers','num'],
       ['متوسط الإيراد اليومي','avgDailyRev','money']]},
-    {title:'🎯 إيراد داتا الفترة — عملاء أول تواصل ليهم (Leads / Received) في الفترة، ودفعاتهم من شيت الدفع', rows:[
-      ['عملاء الفترة (أول تواصل في الفترة)','coTotal','num'], ['دفعوا (عندهم دفعة بعد أول تواصل)','coPaid','num'],
-      ['نسبة التحويل','coConv','pct'], ['إيراد عملاء الفترة','coRev','money'], ['متوسط الدفع للعميل الدافع','coAvg','money'],
-      ['أول تواصل Received — عملاء','coRecvN','num'], ['أول تواصل Received — دفعوا','coRecvPaid','num'],
-      ['أول تواصل Received — تحويل','coRecvConv','pct'], ['أول تواصل Received — الإيراد','coRecvRev','money'],
-      ['أول تواصل Leads — عملاء','coLeadsN','num'], ['أول تواصل Leads — دفعوا','coLeadsPaid','num'],
-      ['أول تواصل Leads — تحويل','coLeadsConv','pct'], ['أول تواصل Leads — الإيراد','coLeadsRev','money']]},
     {title:'🧾 العروض — قيمة البيع الكاملة (New Comer)', rows:[
       ['إجمالي قيمة العروض','offersTotal','money'], ['عدد العروض','offersCount','num'],
       ['المحصّل من هذه العروض (لحد دلوقتي)','offersPaid','money'],
@@ -7064,6 +7091,112 @@ function renderCompare(){
     <thead><tr><th>الشهر</th><th>إجمالي الإيراد</th><th>تغير عن الشهر السابق</th><th>إيراد Received</th><th>إيراد Leads</th><th>غير منسوب</th><th>إيراد عملاء جدد</th><th>مكالمات Received</th><th>مكالمات Leads</th><th>إجمالي المكالمات</th><th>تغير المكالمات</th><th>طلاب جدد</th><th>Registered</th><th>Organic</th></tr></thead>
     <tbody>${body || emptyRow(14,'لا توجد بيانات')}</tbody>`;
 }
+</script>
+<script>
+/* =========================================================
+   💰 "الفلوس محسوبة إزاي" — a note above every report that shows money.
+   One central registry: matched by panel title (or by element id for KPI grids)
+   and injected after each render, so it also survives page / filter re-renders.
+========================================================= */
+(function(){
+  const TOP = 'بتتأثر بفلاتر أول الصفحة (الشهر / اللغة / الموظف) وشهر الدفع هو اللي بيتحدد بيه الشهر.';
+  const EMP = 'دفعات <b>New Comer</b> + دفعات <b>Rest Of Money</b> اللي أصل عرضها في نفس شهر الدفعة، منسوبة <b>لآخر موظف كلّم العميل</b> (مطابقة رقم الموبايل مع المكالمات). الدفعات اللي ملهاش مكالمة بنفس الرقم مش بتظهر هنا.';
+  const CUST = 'دفعات <b>New Comer</b> للعميل <u>بتاريخ أول تواصل أو بعده</u> (دفعة قديمة قبل أول تواصل = طالب قديم مش بتتحسب)، والعميل بيتعد مرة واحدة (آخر مكالمة له في القناة).';
+  const TOTP = 'الفلوس = دفعات <b>New Comer</b> للعميل <u>بتاريخ أول تواصل أو بعده</u> (من غير حد لتاريخ الدفع)، والعميل بيتعد مرة واحدة حتى لو جه من القناتين. العملاء هنا هم اللي ليهم تواصل جوه فلاتر أول الصفحة. <b>إجمالي العروض</b> (لو ظاهر) = قيمة البيع الكاملة للعروض اللي دفعة حجزها من دفعات العميل.';
+  const SRC = 'دفعات <b>New Comer</b> + <b>Rest Of Money</b> (أصل عرضها في نفس شهر الدفعة) منسوبة لـ<b>مصدر أول مكالمة</b> للعميل (مطابقة الموبايل مع كل التاريخ). دفعات مالهاش مكالمة مش داخلة.';
+  const CMPCH = 'كل دفعة بتتنسب للقناة اللي فيها <b>أول</b> مكالمة للعميل (Received أو Leads)، والباقي "غير منسوب" (مفيش مكالمة بنفس الرقم)، فريسيفد + ليدز + غير منسوب = إجمالي الشركة.';
+
+  const BY_TITLE = [
+    // ---- Overview ----
+    [/اتجاه الإيرادات الشهري/, 'مجموع <b>كل</b> الدفعات في شيت الدفع (جدد + ريتنشن + Rest Of Money + أخرى) لكل شهر حسب <b>تاريخ الدفع</b> — آخر 12 شهر.'],
+    [/^\s*الإيرادات حسب الفرع/, 'مجموع كل الدفعات حسب عمود <b>الفرع (location)</b> في شيت الدفع، يعني فرع الدفع مش فرع المكالمة.'],
+    [/💰 إيراد كل فرع/, 'كل الدفعات حسب فرع الدفع (location)، مقسّمة بـ Payment Type: عملاء جدد (New Comer) / Rest Of Money / ريتنشن / أخرى. % = من إجمالي كل الفروع، وأعمدة الشهور آخر 6 شهور بتاريخ الدفع.'],
+    [/الإيرادات حسب المسار/, 'مجموع كل الدفعات حسب عمود <b>Track</b> في شيت الدفع.'],
+    [/أعلى 5 موظفين إيرادًا|أعلى الموظفين إيرادًا/, EMP],
+    [/اتجاه أداء الموظفين/, 'نفس إيراد الموظف: '+EMP+' كل شهر حسب شهر الدفع (أعلى 5 موظفين).'],
+    // ---- Leads / Received tabs ----
+    [/نسبة التحويل حسب (المصدر|الفرع) — Received|^\s*نسبة الرد حسب (المصدر|الفرع)/, 'عمود الفلوس = '+CUST+' '],
+    [/تريند نسبة الرد والتحويل عبر الوقت/, 'الإيراد اليومي = <b>فلوس العملاء اللي كلمونا اليوم ده</b> وفي الآخر دفعوا (دفعات New Comer + Rest Of Money نفس الشهر، بأي تاريخ دفع) — مش الفلوس اللي دخلت في اليوم ده.'],
+    [/نسبة الرد جوا الشيفت وبره الشيفت/, 'الفلوس = '+CUST+' موزعة حسب وقت نزول الليد: جوا الشيفت (10 ص – 10 م) أو بره.'],
+    [/نسبة تحويل الموظفين على|أداء الـ (Received|Leads) \(لكل موظف\)/, 'الفلوس = دفعات <b>New Comer</b> + <b>Rest Of Money</b> (نفس شهر العرض) المنسوبة للموظف اللي كان <b>آخر واحد كلّم العميل في القناة دي</b>، بتاريخ دفع جوه الفترة — يعني بتشمل أي عميل دفع في الشهر ده حتى لو أول تواصل معاه من شهور قديمة. أما <b>دافع</b> ونسبة التحويل فمبنيين على عملاء اتكلموا معاهم في الشهر. فنفس الدفعة ممكن تظهر في Received وLeads لموظفين مختلفين لو العميل كلّمنا من القناتين.'],
+    [/🔥 Sales Performance Funnel/, 'Revenue = '+EMP+' (نفس منطق "الفلوس والتارجت لكل موظف") بتاريخ دفع جوه الفترة، حتى لو العميل أول تواصل معاه من شهور قديمة. Revenue/Customer = ÷ العملاء اللي اتكلموا معاهم في الشهر.'],
+    [/📣 الحملة \(Campaign\)/, 'الفلوس = '+CUST+' والإجمالي = كل الحملات. نسبة التحويل = اللي دفعوا ÷ عملاء الحملة.'],
+    [/مقارنة فترتين/, '<b>الفلوس اللي اتحصلت</b> = كل الدفعات بتاريخ الدفع جوه الفترة، و<b>إجمالي العروض</b> = قيمة العروض الكاملة اللي اتباعت في الفترة (بتاريخ أول دفعة للعرض).'],
+    // ---- Employees ----
+    [/Employee Quality Score/, 'إيراد/عميل = إيراد الموظف (New Comer + Rest Of Money نفس الشهر، منسوب له بآخر مكالمة، حتى لو العميل قديم) ÷ عدد عملاؤه الفريدين اللي اتكلموا معاهم في الشهر.'],
+    [/الفلوس والتارجت لكل موظف/, 'إجمالي الفلوس المحصلة = '+EMP+' التارجت بتدخله إنت، و"يحتاج مراجعة" = دفعات رقمها مش لاقي مكالمة.'],
+    // ---- Money page ----
+    [/الإيرادات الشهرية حسب النوع/, 'كل دفعة في شهر دفعها وبتتصنف بـ Payment Type: عملاء جدد / ريتنشن / باقي فلوس (محسوبة = أصل العرض في نفس شهر الدفعة، وغير محسوبة = غير كده) / أخرى (كتب، شهادات...).'],
+    [/الإيرادات حسب طريقة الدفع/, 'كل الدفعات في الفترة مجمّعة حسب عمود <b>Method</b> (طريقة الدفع) في شيت الدفع.'],
+    [/الريتنشن حسب الفرع/, 'دفعات <b>الريتنشن</b> بس، حسب فرع الدفع (location).'],
+    [/باقي الفلوس \(Rest Of Money\)/, 'كل دفعات <b>Rest Of Money</b> في الفترة. <b>المحسوبة</b> = أقرب دفعة New Comer قبلها لنفس الرقم والتراك كانت في نفس شهر الدفعة؛ غير كده بتتعد "غير محسوبة" على الموظف (لكنها داخلة في إجمالي الإيراد).'],
+    [/كفاءة الفرع/, 'إيرادات <b>New Comer</b> حسب فرع الدفع ÷ عدد كل مكالمات الفرع في الفترة.'],
+    [/أكتر 10 عروض مبيعًا/, 'دفعات <b>New Comer</b> بس مجمّعة حسب نص Payment Type (العرض). الإيراد = المبالغ <b>المدفوعة فعلاً</b> مش سعر العرض الكامل.'],
+    [/إيراد العملاء الجدد لشهر/, 'دفعات <b>New Comer</b> بتاريخ دفع في آخر شهر في الداتا، مقارنة بالشهر اللي قبله. متوسط قيمة العرض = الإجمالي ÷ عدد الدفعات (المدفوع فعلاً مش سعر العرض الكامل).'],
+    [/إيراد Received — من داتا شهر/, 'دفعات <b>New Comer</b> بتاريخ دفع في آخر شهر، وكل دفعة بتتنسب لشهر <b>أول ظهور للعميل في Received</b> (من كل التاريخ). صف الشهر (جديد) = اللي أول تواصل ليهم ودفعهم في نفس الشهر.'],
+    [/إيراد Leads — من داتا شهر/, 'دفعات <b>New Comer</b> بتاريخ دفع في آخر شهر، وكل دفعة بتتنسب لشهر <b>أول ظهور للعميل في Leads</b> (من كل التاريخ). صف الشهر (جديد) = اللي أول تواصل ليهم ودفعهم في نفس الشهر.'],
+    [/إيراد العملاء الجدد \(Leads \+ Received\) — من داتا شهر/, 'دفعات <b>New Comer</b> بتاريخ دفع في آخر شهر، وكل دفعة بتتنسب لشهر <b>أول ظهور للعميل في Leads أو Received (الأقدم)</b> من كل التاريخ. عملاء ظاهرين في القناتين بيتعدوا في العمودين فمجموعهم ممكن يزيد. الدفعات اللي رقمها مش لاقي مكالمة بتظهر بره الإجمالي المطابق.'],
+    [/التارجت مقابل الفعلي/, 'الفعلي = دفعات <b>New Comer</b> بس (مبيعات جديدة) لكل شهر بتاريخ الدفع، مقابل مجموع التارجت اللي دخلته لكل الفروع.'],
+    // ---- Funnel ----
+    [/Pipeline Aging/, 'القيمة المتوقعة = عدد العملاء × <b>متوسط قيمة عرض New Comer</b> لتراك العميل (أو المتوسط العام). تقدير للفرصة مش فلوس فعلية.'],
+    [/ROM Overdue/, 'دفعات <b>Rest Of Money</b> اللي أصل عرضها (شهر الدفعة الأولى) قبل آخر شهر في الداتا بشهرين أو أكتر، يعني اتحصلت متأخرة. المبلغ = مجموع الدفعات دي منسوبة للموظف.'],
+    [/Win-Back/, 'إجمالي مدفوعاته = مجموع <b>كل</b> دفعات العميل (أي نوع، كل التاريخ). بيظهر لو آخر دفعة وآخر تواصل من 60 يوم أو أكتر.'],
+    // ---- Marketing (old tab) ----
+    [/^\s*الإيرادات حسب المصدر/, SRC],
+    [/الصرف مقابل الإيراد المنسوب/, 'الإيراد المنسوب = '+SRC+' لكل شهر دفع، والصرف اللي دخلته إنت.'],
+    [/جدول الأداء والعائد على الصرف/, 'إيرادات المصدر = '+SRC+' <b>ROAS</b> = الإيرادات ÷ صرف الشهر الحالي اللي دخلته للمصدر.'],
+    [/قيمة المصدر الحقيقية/, 'Revenue = '+SRC+' و Revenue/Customer = ÷ عملاء المصدر الفريدين (أرقام موبايل مكالماته).'],
+    [/أداء الفروع الحقيقي/, 'Revenue = دفعات <b>New Comer</b> + <b>Rest Of Money</b> (نفس الشهر) منسوبة لـ<b>فرع أول مكالمة</b> للعميل (مطابقة الموبايل)، ودفعات مالهاش مكالمة بتتعد على فرع الدفع. Revenue/Customer = ÷ عملاء الفرع الفريدين.'],
+    [/Data Leakage/, 'بيعرض الدفعات (أي نوع) اللي ملهاش موظف: رقم الموبايل ناقص أو مفيش مكالمة بنفس الرقم، بمبلغها الفعلي.'],
+    [/🥇 Customer Funnel/, 'Revenue Collected = مجموع <b>كل</b> الدفعات (أي نوع) في الفترة بتاريخ الدفع.'],
+    [/إيرادات التوصية/, 'دفعات <b>New Comer</b> بس لعملاء ليهم Referal في شيت الطلاب، مجمّعة حسب مصدر التوصية.'],
+    // ---- Total page ----
+    [/^\s*(🔀 حسب القناة|🧲 حسب المصدر|🏢 حسب الفرع|🌐 حسب اللغة|🛤️ حسب التراك|📅 حسب يوم الأسبوع|🕐 حسب ساعة النزول|🎂 حسب السن|🚻 ذكور|🧑‍💼 حسب الموظف|📈 التريند اليومي)/, TOTP],
+    // ---- Compare ----
+    [/الإيراد: إجمالي \/ ريسيفد \/ ليدز/, 'إجمالي = كل الدفعات (أي نوع) بتاريخ الدفع جوه الفترة (بعد فلتر اللغة والموظف). '+CMPCH],
+    [/جدول المقارنة التفصيلي/, '<b>إيراد الشركة</b> = كل الدفعات بتاريخ الدفع (جدد + ريتنشن + Rest Of Money + أخرى). <b>حسب القناة</b>: '+CMPCH+' <b>العروض</b> = قيمة العرض الكاملة بتاريخ أول دفعة، والمحصّل منها لحد دلوقتي حتى لو بعد الفترة. <b>فلوس Registered / Organic</b> = دفعات New Comer للعميل من تاريخ أول تواصل (أو تسجيله) وبعده، والفترة بتتحدد بتاريخ التسجيل مش الدفع.'],
+    [/الإيراد يوم بيوم/, 'كل يوم = مجموع الدفعات اللي اتدفعت في اليوم ده (تراكمي أو يومي حسب اختيار العرض)، وكل يوم بيتقارن بنفس رقم اليوم في الفترة التانية.'],
+    [/الإيراد الشهري حسب القناة/, 'إيراد كل شهر (كل الدفعات بتاريخ الدفع) مقسّم: '+CMPCH],
+    [/الشهور جنب بعض/, 'إجمالي الإيراد = كل دفعات الشهر. ريسيفد / ليدز / غير منسوب: '+CMPCH+' إيراد جدد = دفعات New Comer بس.']
+  ];
+
+  const BY_ID = {
+    'ov-kpis': 'كل الفلوس من <b>شيت الدفع</b> مش من المكالمات. <b>إجمالي الإيرادات</b> = كل الدفعات (أي نوع) في الفترة بتاريخ الدفع، و<b>إيرادات عملاء جدد</b> = دفعات New Comer بس. التغيير = مقارنة بالشهر السابق. '+TOP,
+    'money-kpis': '<b>إجمالي كل الإيرادات</b> = كل الدفعات في الفترة بتاريخ الدفع. <b>مبيعات عملاء جدد</b> = دفعات New Comer. <b>الريتنشن</b> = دفعات الريتنشن. <b>باقي الفلوس</b> = كل دفعات Rest Of Money. '+TOP,
+    'tot-kpis': TOTP,
+    'fn-kpis': 'القيمة المتوقعة (لو ظاهرة) = عدد العملاء × <b>متوسط قيمة عرض New Comer</b> لتراكهم (أو المتوسط العام) — تقدير مش فلوس فعلية.',
+    'cmp-kpis': 'إيراد الشركة = كل الدفعات (أي نوع) بتاريخ الدفع جوه Period B بعد فلتر اللغة والموظف، والتغيير مقابل Period A. '+CMPCH,
+    'mkt-kpis': '<b>إيرادات مرتبطة بمصدر معروف</b> = '+SRC+' <b>الصرف</b> = صرف الشهر الحالي اللي دخلته، و<b>ROAS</b> = الإيرادات ÷ الصرف.'
+  };
+
+  const mk = html => { const d = document.createElement('div'); d.className = 'money-note'; d.innerHTML = '💰 <b>الفلوس محسوبة إزاي:</b> ' + html; return d; };
+  function inject(){
+    try{
+      document.querySelectorAll('.panel-title').forEach(title=>{
+        const panel = title.closest('.panel');
+        if(!panel || panel.dataset.moneyNote) return;
+        const txt = title.textContent.replace(/\s+/g,' ').trim();
+        const hit = BY_TITLE.find(e=> e[0].test(txt));
+        if(!hit) return;
+        let anchor = title;
+        while(anchor.parentElement && anchor.parentElement!==panel) anchor = anchor.parentElement;
+        anchor.insertAdjacentElement('afterend', mk(hit[1]));
+        panel.dataset.moneyNote = '1';
+      });
+      Object.keys(BY_ID).forEach(id=>{
+        const el = document.getElementById(id);
+        if(!el || el.dataset.moneyNote) return;
+        el.dataset.moneyNote = '1';
+        el.insertAdjacentElement('beforebegin', mk(BY_ID[id]));
+      });
+    }catch(e){ console.error('money notes failed', e); }
+  }
+  let timer = null;
+  const schedule = ()=>{ clearTimeout(timer); timer = setTimeout(inject, 120); };
+  new MutationObserver(schedule).observe(document.body, {childList:true, subtree:true});
+  document.addEventListener('DOMContentLoaded', schedule);
+  schedule();
+})();
 </script>
 </body>
 </html>
