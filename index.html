@@ -4226,6 +4226,7 @@ function employeesTemplate(){
     <div class="panel">
       <div class="panel-title"><span class="bar"></span> الفلوس والتارجت لكل موظف</div>
       <div class="badge-note">🟢 التارجت = 70% فأكتر &nbsp;|&nbsp; 🔴 أقل من 70% &nbsp;&nbsp;•&nbsp;&nbsp; التارجت بيتحفظ في المتصفح أوتوماتيك</div>
+    <div class="badge-note" style="line-height:1.9;">الفلوس = دفعات <b>New Comer + Rest Of Money</b> (نفس شهر العرض) المنسوبة للموظف اللي كان <b>آخر واحد كلّم العميل</b>، بتاريخ دفع جوه الفترة — يعني بتشمل أي عميل دفع في الشهر ده حتى لو أول تواصل معاه من شهور قديمة. الصف ⚠️ = نفس نوع الدفعات بس مفيش مكالمة بنفس رقمها فمش ممكن تتنسب لموظف.</div>
       <div style="overflow:auto;"><table id="emp-money-table"></table></div>
     </div>
 
@@ -4381,7 +4382,8 @@ function renderEmployees(){
     options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{grid:{color:'#e3e7f0'}}, y:{grid:{display:false}} } }
   });
 
-  const unmatched = revenuePayments.filter(p=>!p.attributedEmployee);
+  // same payment types as the table, but no call was found for the phone => can't be credited to an employee
+  const unmatched = payments.filter(p=>p.countsAsEmployeeRevenue && !p.attributedEmployee);
   const unmatchedAmount = unmatched.reduce((s,p)=>s+p.amount,0);
   makeChart('emp-attribution-chart', {
     type:'doughnut',
@@ -7124,7 +7126,7 @@ function renderCompare(){
     [/مقارنة فترتين/, '<b>الفلوس اللي اتحصلت</b> = كل الدفعات بتاريخ الدفع جوه الفترة، و<b>إجمالي العروض</b> = قيمة العروض الكاملة اللي اتباعت في الفترة (بتاريخ أول دفعة للعرض).'],
     // ---- Employees ----
     [/Employee Quality Score/, 'إيراد/عميل = إيراد الموظف (New Comer + Rest Of Money نفس الشهر، منسوب له بآخر مكالمة، حتى لو العميل قديم) ÷ عدد عملاؤه الفريدين اللي اتكلموا معاهم في الشهر.'],
-    [/الفلوس والتارجت لكل موظف/, 'إجمالي الفلوس المحصلة = '+EMP+' التارجت بتدخله إنت، و"يحتاج مراجعة" = دفعات رقمها مش لاقي مكالمة.'],
+    [/الفلوس والتارجت لكل موظف/, 'إجمالي الفلوس المحصلة = دفعات <b>New Comer + Rest Of Money</b> (نفس شهر العرض) المنسوبة للموظف اللي كان <b>آخر واحد كلّم العميل</b>، بتاريخ دفع جوه الفترة — بتشمل أي عميل دفع في الشهر ده حتى لو أول تواصل معاه من شهور قديمة. التارجت بتدخله إنت، و"يحتاج مراجعة" = نفس الدفعات بس مفيش مكالمة بنفس الرقم.'],
     // ---- Money page ----
     [/الإيرادات الشهرية حسب النوع/, 'كل دفعة في شهر دفعها وبتتصنف بـ Payment Type: عملاء جدد / ريتنشن / باقي فلوس (محسوبة = أصل العرض في نفس شهر الدفعة، وغير محسوبة = غير كده) / أخرى (كتب، شهادات...).'],
     [/الإيرادات حسب طريقة الدفع/, 'كل الدفعات في الفترة مجمّعة حسب عمود <b>Method</b> (طريقة الدفع) في شيت الدفع.'],
